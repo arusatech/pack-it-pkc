@@ -61,10 +61,18 @@ const result = await md.convert("/path/to/scan.png");
 | html | Html | cheerio + turndown |
 | csv | Csv | Markdown tables |
 | ipynb | Ipynb | Notebook cells |
-| pdf | Pdf | pdf-parse; GGUF fallback for scans |
+| pdf | Pdf | pdfjs-dist tables/forms + pdf-parse fallback |
+| epub | Epub | OPF spine + HTML chapters |
+| rss, atom | Rss | RSS 2.0 + Atom |
+| wikipedia | Wikipedia | `#mw-content-text` extraction |
+| youtube | YouTube | Metadata + optional transcript |
+| outlook .msg | Outlook | `@kenjiuno/msgreader` |
 | png, jpg | Image | Embedded + optional GGUF caption |
 | zip | Zip | Recursive member conversion |
-| docx, xlsx, pptx | — | Planned (mammoth/exceljs) |
+| docx | Docx | mammoth + OMML→LaTeX preprocess |
+| xlsx, xls | Xlsx / Xls | SheetJS |
+| pptx | Pptx | jszip + XML; optional GGUF image captions |
+| wav, mp3, m4a | Audio | `music-metadata`; optional GGUF transcript |
 
 ### PKC format
 

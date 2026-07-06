@@ -23,12 +23,22 @@ import { normalizeMarkdown } from "../utils/normalize.js";
 import { fileUriToPath, parseDataUri } from "../utils/uri.js";
 import type { GgufInferenceProvider } from "../inference/types.js";
 import {
+  AudioConverter,
   CsvConverter,
+  DocxConverter,
+  EpubConverter,
   HtmlConverter,
   ImageConverter,
   IpynbConverter,
+  OutlookMsgConverter,
   PdfConverter,
   PlainTextConverter,
+  PptxConverter,
+  RssConverter,
+  WikipediaConverter,
+  XlsConverter,
+  XlsxConverter,
+  YouTubeConverter,
   ZipConverter,
 } from "./converters/index.js";
 
@@ -65,9 +75,19 @@ export class MarkItDown {
     this.registerConverter(new PlainTextConverter(), PRIORITY_GENERIC_FILE_FORMAT);
     this.registerConverter(new ZipConverter(this), PRIORITY_GENERIC_FILE_FORMAT);
     this.registerConverter(new HtmlConverter(), PRIORITY_GENERIC_FILE_FORMAT);
+    this.registerConverter(new RssConverter());
+    this.registerConverter(new WikipediaConverter());
+    this.registerConverter(new YouTubeConverter());
     this.registerConverter(new CsvConverter());
     this.registerConverter(new IpynbConverter());
+    this.registerConverter(new DocxConverter());
+    this.registerConverter(new XlsxConverter());
+    this.registerConverter(new XlsConverter());
+    this.registerConverter(new PptxConverter());
+    this.registerConverter(new AudioConverter());
     this.registerConverter(new PdfConverter());
+    this.registerConverter(new OutlookMsgConverter());
+    this.registerConverter(new EpubConverter());
     this.registerConverter(new ImageConverter());
 
     this.builtinsEnabled = true;

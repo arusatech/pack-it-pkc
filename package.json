@@ -23,7 +23,7 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsup src/index.ts src/inference/capacitor-provider.ts src/inference/node-provider.ts --format esm,cjs --dts --clean --external pdf-parse --external file-type --external fflate --external llama-cpp-capacitor --external node-llama-cpp",
+    "build": "tsup src/index.ts src/inference/capacitor-provider.ts src/inference/node-provider.ts --format esm,cjs --dts --clean --external pdf-parse --external pdfjs-dist --external file-type --external fflate --external mammoth --external xlsx --external jszip --external fast-xml-parser --external @kenjiuno/msgreader --external youtube-transcript-api-js --external music-metadata --external llama-cpp-capacitor --external node-llama-cpp",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -37,7 +37,18 @@
     "cheerio": "^1.1.0",
     "fflate": "^0.8.2",
     "file-type": "^21.0.0",
-    "turndown": "^7.2.0"
+    "fast-xml-parser": "^5.2.5",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.9.0",
+    "music-metadata": "^11.0.3",
+    "pdfjs-dist": "^5.3.93",
+    "turndown": "^7.2.0",
+    "xlsx": "^0.18.5",
+    "youtube-transcript-api-js": "^3.0.3"
+  },
+  "optionalDependencies": {
+    "pdf-parse": "^1.1.1",
+    "@kenjiuno/msgreader": "^1.27.1"
   },
   "peerDependencies": {
     "llama-cpp-capacitor": ">=0.2.0",
@@ -46,9 +57,6 @@
   "peerDependenciesMeta": {
     "llama-cpp-capacitor": { "optional": true },
     "node-llama-cpp": { "optional": true }
-  },
-  "optionalDependencies": {
-    "pdf-parse": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",

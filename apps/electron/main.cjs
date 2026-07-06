@@ -25,7 +25,7 @@ app.on("window-all-closed", () => {
 ipcMain.handle("pick-file", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ["openFile"],
-    filters: [{ name: "Documents", extensions: ["pdf", "docx", "html", "txt", "md", "csv", "ipynb", "png", "jpg"] }],
+    filters: [{ name: "Documents", extensions: ["pdf", "docx", "xlsx", "xls", "pptx", "epub", "rss", "atom", "msg", "html", "txt", "md", "csv", "ipynb", "png", "jpg", "wav", "mp3", "m4a"] }],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   return result.filePaths[0];

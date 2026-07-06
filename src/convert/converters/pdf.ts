@@ -2,9 +2,10 @@ import type { StreamInfo } from "../../types/stream-info.js";
 import type { ByteStream } from "../../utils/byte-stream.js";
 import type { ConverterContext, DocumentConverter, DocumentConverterResult } from "../../types/converter.js";
 import { MissingDependencyError } from "../../types/exceptions.js";
+import { extractPdfMarkdown } from "../pdf/pdf-extractor.js";
 
 const ACCEPTED_EXTENSIONS = [".pdf"];
-const ACCEPTED_MIME = ["application/pdf"];
+const ACCEPTED_MIME = ["application/pdf", "application/x-pdf"];
 
 export class PdfConverter implements DocumentConverter {
   accepts(_stream: ByteStream, info: StreamInfo): boolean {
@@ -14,30 +15,27 @@ export class PdfConverter implements DocumentConverter {
   }
 
   async convert(stream: ByteStream, _info: StreamInfo, ctx?: ConverterContext): Promise<DocumentConverterResult> {
-    let pdfParse: (buf: Buffer) => Promise<{ text: string; info?: { Title?: string } }>;
+    const bytes = stream.remaining();
+
     try {
-      const mod = await import("pdf-parse");
-      pdfParse = (mod.default ?? mod) as typeof pdfParse;
-    } catch {
-      throw new MissingDependencyError("PdfConverter", "pdf-parse");
-    }
+      const result = await extractPdfMarkdown(bytes);
 
-    const result = await pdfParse(Buffer.from(stream.remaining()));
-
-    // Optional GGUF vision/OCR pass when text extraction is sparse
-    const provider = ctx?.llmProvider;
-    if (provider && result.text.trim().length < 50) {
-      const caption = await provider.describeDocument?.({
-        bytes: stream.toUint8Array(),
-        mimeType: "application/pdf",
-        prompt: ctx?.llmPrompt ?? "Extract all readable text from this document.",
-        model: ctx?.llmModel,
-      });
-      if (caption) {
-        return { markdown: caption, title: result.info?.Title ?? null };
+      const provider = ctx?.llmProvider;
+      if (provider && result.markdown.trim().length < 50) {
+        const caption = await provider.describeDocument?.({
+          bytes,
+          mimeType: "application/pdf",
+          prompt: ctx?.llmPrompt ?? "Extract all readable text from this document.",
+          model: ctx?.llmModel,
+        });
+        if (caption) {
+          return { markdown: caption, title: result.title ?? null };
+        }
       }
-    }
 
-    return { markdown: result.text, title: result.info?.Title ?? null };
+      return result;
+    } catch {
+      throw new MissingDependencyError("PdfConverter", "pdf-parse or pdfjs-dist");
+    }
   }
 }
