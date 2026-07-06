@@ -1,8 +1,7 @@
 import { defineConfig } from "tsup";
 
 const external = [
-  "pdf-parse",
-  "pdfjs-dist",
+  "mupdf",
   "file-type",
   "fflate",
   "mammoth",

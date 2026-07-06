@@ -61,10 +61,11 @@ const result = await md.convert("/path/to/scan.png");
 | html | Html | cheerio + turndown |
 | csv | Csv | Markdown tables |
 | ipynb | Ipynb | Notebook cells |
-| pdf | Pdf | pdfjs-dist tables/forms + pdf-parse fallback |
+| pdf | Pdf | MuPDF.js (WASM) tables/forms + plain text |
 | epub | Epub | OPF spine + HTML chapters |
 | rss, atom | Rss | RSS 2.0 + Atom |
 | wikipedia | Wikipedia | `#mw-content-text` extraction |
+| bing serp | BingSerp | Organic `b_algo` results; redirect URL decode |
 | youtube | YouTube | Metadata + optional transcript |
 | outlook .msg | Outlook | `@kenjiuno/msgreader` |
 | png, jpg | Image | Embedded + optional GGUF caption |
@@ -72,7 +73,7 @@ const result = await md.convert("/path/to/scan.png");
 | docx | Docx | mammoth + OMML→LaTeX preprocess |
 | xlsx, xls | Xlsx / Xls | SheetJS |
 | pptx | Pptx | jszip + XML; optional GGUF image captions |
-| wav, mp3, m4a | Audio | `music-metadata`; optional GGUF transcript |
+| wav, mp3, m4a | Audio | `music-metadata` tags |
 
 ### PKC format
 
@@ -126,3 +127,5 @@ npm run electron:dev
 ## License
 
 MIT — Mr. Yakub Mohammad &lt;yakub@annadata.ai&gt;
+
+PDF conversion uses [MuPDF.js](https://www.npmjs.com/package/mupdf) (AGPL-3.0). Distributing this library with PDF support requires complying with the AGPL; source distribution satisfies that for an open-source product.

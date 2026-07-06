@@ -87,6 +87,38 @@ describe("format detector", () => {
   });
 });
 
+describe("PdfConverter", () => {
+  it("extracts text from a minimal PDF via MuPDF", async () => {
+    const pdf = `%PDF-1.1
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 300]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
+4 0 obj<</Length 44>>stream
+BT /F1 24 Tf 72 200 Td (Hello PDF) Tj ET
+endstream
+endobj
+5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000270 00000 n 
+0000000369 00000 n 
+trailer<</Size 6/Root 1 0 R>>
+startxref
+428
+%%EOF`;
+    const md = new MarkItDown();
+    const result = await md.convertBytes(new TextEncoder().encode(pdf), {
+      extension: ".pdf",
+      mimetype: "application/pdf",
+    });
+    expect(result.markdown).toMatch(/Hello\s*PDF/i);
+  });
+});
+
 describe("Phase 3 converters", () => {
   it("merges MasterFormat partial numbering", async () => {
     const { mergePartialNumberingLines } = await import("../src/convert/pdf/merge-partial-numbering.js");
@@ -114,6 +146,36 @@ describe("Phase 3 converters", () => {
     });
     expect(result.markdown).toContain("Earth");
     expect(result.markdown).toContain("Third planet");
+  });
+
+  it("converts Bing SERP HTML when URL matches", async () => {
+    const targetUrl = "https://example.com/docs";
+    const encodedU = "a1" + Buffer.from(targetUrl).toString("base64url");
+    const redirectHref = `https://www.bing.com/ck/a?u=${encodeURIComponent(encodedU)}`;
+    const html = `<html><head><title>docs - Search</title></head><body>
+<div class="b_algo">
+  <h2><a href="${redirectHref}">Example Docs</a></h2>
+  <p class="tptt">Official documentation</p>
+  <span class="algoSlug_icon"></span>
+</div>
+<div class="b_algo">
+  <h2><a href="https://other.example/page">Other Result</a></h2>
+  <p>Plain link result</p>
+</div>
+</body></html>`;
+    const md = new MarkItDown();
+    const result = await md.convertBytes(new TextEncoder().encode(html), {
+      extension: ".html",
+      mimetype: "text/html",
+      url: "https://www.bing.com/search?q=docs",
+    });
+    expect(result.markdown).toContain("## A Bing search for 'docs' found the following results:");
+    expect(result.markdown).toContain("Example Docs");
+    expect(result.markdown).toContain(targetUrl);
+    expect(result.markdown).toContain("Official documentation");
+    expect(result.markdown).toContain("Other Result");
+    expect(result.markdown).toContain("https://other.example/page");
+    expect(result.title).toBe("docs - Search");
   });
 
   it("converts OMML math to latex", async () => {

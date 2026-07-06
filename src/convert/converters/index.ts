@@ -12,5 +12,6 @@ export { EpubConverter } from "./epub.js";
 export { RssConverter } from "./rss.js";
 export { WikipediaConverter } from "./wikipedia.js";
 export { YouTubeConverter } from "./youtube.js";
+export { BingSerpConverter } from "./bing-serp.js";
 export { OutlookMsgConverter } from "./outlook.js";
 export { AudioConverter } from "./audio.js";

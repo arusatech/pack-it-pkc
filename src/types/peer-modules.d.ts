@@ -21,19 +21,6 @@ declare module "music-metadata" {
   }>;
 }
 
-declare module "pdfjs-dist/legacy/build/pdf.mjs" {
-  export function getDocument(opts: Record<string, unknown>): { promise: Promise<PdfDocument> };
-  interface PdfDocument {
-    numPages: number;
-    getPage(n: number): Promise<PdfPage>;
-    getMetadata(): Promise<{ info?: Record<string, unknown> }>;
-  }
-  interface PdfPage {
-    getViewport(opts: { scale: number }): { height: number; width: number };
-    getTextContent(): Promise<{ items: Array<{ str?: string; transform?: number[]; width?: number }> }>;
-  }
-}
-
 declare module "mammoth" {
   export function convertToHtml(
     input: { buffer: Buffer },
@@ -55,27 +42,31 @@ declare module "xlsx" {
 }
 
 declare module "jszip" {
+  interface JSZipObject {
+    dir: boolean;
+    async(type: "string"): Promise<string>;
+    async(type: "arraybuffer"): Promise<ArrayBuffer>;
+    async(type: "uint8array"): Promise<Uint8Array>;
+  }
+
   export default class JSZip {
     static loadAsync(data: Uint8Array): Promise<JSZip>;
-    files: Record<string, { async(type: "string"): Promise<string>; async(type: "arraybuffer"): Promise<ArrayBuffer> }>;
-    file(name: string): { async(type: "string"): Promise<string>; async(type: "arraybuffer"): Promise<ArrayBuffer> } | null;
+    files: Record<string, JSZipObject>;
+    file(name: string, data?: Uint8Array | string): JSZipObject | null;
+    generateAsync(options: { type: "arraybuffer" }): Promise<ArrayBuffer>;
   }
-}
-
-declare module "pdf-parse" {
-  interface PdfParseResult {
-    text: string;
-    info?: { Title?: string };
-  }
-  function pdfParse(buf: Buffer): Promise<PdfParseResult>;
-  export default pdfParse;
 }
 
 declare module "node-llama-cpp" {
+  export class LlamaChatSession {
+    constructor(opts: { contextSequence: unknown });
+    prompt(text: string, options?: { maxTokens?: number }): Promise<string>;
+  }
+
   export function getLlama(): Promise<{
     loadModel(opts: { modelPath: string }): Promise<{
       createContext(): Promise<{
-        completion(opts: { messages: Array<{ role: string; content: string }> }): Promise<string>;
+        getSequence(): unknown;
       }>;
     }>;
   }>;

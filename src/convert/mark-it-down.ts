@@ -36,6 +36,7 @@ import {
   PptxConverter,
   RssConverter,
   WikipediaConverter,
+  BingSerpConverter,
   XlsConverter,
   XlsxConverter,
   YouTubeConverter,
@@ -78,6 +79,7 @@ export class MarkItDown {
     this.registerConverter(new RssConverter());
     this.registerConverter(new WikipediaConverter());
     this.registerConverter(new YouTubeConverter());
+    this.registerConverter(new BingSerpConverter());
     this.registerConverter(new CsvConverter());
     this.registerConverter(new IpynbConverter());
     this.registerConverter(new DocxConverter());

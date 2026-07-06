@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>pack-it-pkc — Manual Convert</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <h1>pack-it-pkc</h1>
+        <p class="subtitle">Upload a document, convert to Markdown, download the result for manual verification.</p>
+      </header>
+
+      <section class="upload-zone" id="drop-zone">
+        <input type="file" id="file-input" hidden />
+        <p><strong>Choose a file</strong> or drag it here</p>
+        <p class="hint">pdf, docx, xlsx, pptx, csv, html, epub, ipynb, images, zip, …</p>
+      </section>
+
+      <div class="meta" id="file-meta" hidden>
+        <span id="file-name"></span>
+        <span id="file-size"></span>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="convert-btn" disabled>Convert</button>
+        <label class="checkbox">
+          <input type="checkbox" id="pkc-toggle" checked />
+          Also pack PKC
+        </label>
+      </div>
+
+      <p class="status" id="status" role="status"></p>
+
+      <section class="downloads" id="downloads" hidden>
+        <h2>Download</h2>
+        <div class="btn-row">
+          <button type="button" id="dl-md" class="secondary">Markdown (.md)</button>
+          <button type="button" id="dl-pkc" class="secondary">PKC (.pkc)</button>
+        </div>
+      </section>
+
+      <section class="preview" id="preview" hidden>
+        <h2>Preview</h2>
+        <pre id="markdown-out"></pre>
+      </section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

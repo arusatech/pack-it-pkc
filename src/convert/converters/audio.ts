@@ -1,6 +1,6 @@
 import type { StreamInfo } from "../../types/stream-info.js";
 import type { ByteStream } from "../../utils/byte-stream.js";
-import type { ConverterContext, DocumentConverter, DocumentConverterResult } from "../../types/converter.js";
+import type { DocumentConverter, DocumentConverterResult } from "../../types/converter.js";
 
 const ACCEPTED_MIME = ["audio/x-wav", "audio/mpeg", "audio/mp4", "video/mp4", "audio/mp3"];
 const ACCEPTED_EXT = [".wav", ".mp3", ".m4a", ".mp4"];
@@ -29,7 +29,7 @@ export class AudioConverter implements DocumentConverter {
     return ACCEPTED_MIME.some((p) => mime.startsWith(p));
   }
 
-  async convert(stream: ByteStream, info: StreamInfo, ctx?: ConverterContext): Promise<DocumentConverterResult> {
+  async convert(stream: ByteStream, info: StreamInfo): Promise<DocumentConverterResult> {
     const bytes = stream.remaining();
     const lines: string[] = [];
 
@@ -76,26 +76,6 @@ export class AudioConverter implements DocumentConverter {
       }
     } catch {
       lines.push(`filename: ${info.filename ?? "audio"}`);
-    }
-
-    const provider = ctx?.llmProvider;
-    if (provider?.complete && ctx?.llmModel) {
-      try {
-        const transcript = await provider.complete(
-          [
-            {
-              role: "user",
-              content:
-                ctx.llmPrompt ??
-                "Transcribe this audio file content if you can process the attached audio; otherwise summarize available metadata.",
-            },
-          ],
-          { model: ctx.llmModel },
-        );
-        if (transcript.trim()) lines.push("", "### Audio Transcript:", transcript.trim());
-      } catch {
-        // optional GGUF transcription
-      }
     }
 
     return { markdown: lines.join("\n").trim(), title: info.filename ?? null };

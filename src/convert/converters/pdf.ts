@@ -34,8 +34,9 @@ export class PdfConverter implements DocumentConverter {
       }
 
       return result;
-    } catch {
-      throw new MissingDependencyError("PdfConverter", "pdf-parse or pdfjs-dist");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new MissingDependencyError("PdfConverter", `mupdf (${message})`);
     }
   }
 }

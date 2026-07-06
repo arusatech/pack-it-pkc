@@ -22,7 +22,7 @@ export interface CompletionOptions {
  * Implementations: Capacitor (mobile/PWA), Node (Electron/desktop).
  */
 export interface GgufInferenceProvider {
-  readonly platform: "capacitor" | "node" | "web";
+  readonly platform: "capacitor" | "node";
 
   loadModel(options: { modelPath: string; contextId?: number }): Promise<void>;
   unloadModel?(contextId?: number): Promise<void>;

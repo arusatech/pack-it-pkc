@@ -1,5 +1,6 @@
 node_modules/
 dist/
+test/manual-convert/dist/
 ref-code/
 *.log
 .DS_Store

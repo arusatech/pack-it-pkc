@@ -21,33 +21,42 @@
       "import": "./dist/inference/node-provider.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:manual": "vite --config test/manual-convert/vite.config.ts",
     "electron:dev": "npm run build && npm --prefix apps/electron run start"
   },
-  "keywords": ["markdown", "document-converter", "pkc", "gguf", "llama-cpp", "markitdown"],
+  "keywords": [
+    "markdown",
+    "document-converter",
+    "pkc",
+    "gguf",
+    "llama-cpp",
+    "markitdown"
+  ],
   "author": "Mr. Yakub Mohammad <yakub@annadata.ai>",
   "license": "MIT",
   "dependencies": {
     "chardet": "^2.1.0",
     "cheerio": "^1.1.0",
+    "fast-xml-parser": "^5.2.5",
     "fflate": "^0.8.2",
     "file-type": "^21.0.0",
-    "fast-xml-parser": "^5.2.5",
     "jszip": "^3.10.1",
     "mammoth": "^1.9.0",
+    "mupdf": "^1.28.0",
     "music-metadata": "^11.0.3",
-    "pdfjs-dist": "^5.3.93",
     "turndown": "^7.2.0",
     "xlsx": "^0.18.5",
     "youtube-transcript-api-js": "^3.0.3"
   },
   "optionalDependencies": {
-    "pdf-parse": "^1.1.1",
     "@kenjiuno/msgreader": "^1.27.1"
   },
   "peerDependencies": {
@@ -55,15 +64,21 @@
     "node-llama-cpp": ">=3.0.0"
   },
   "peerDependenciesMeta": {
-    "llama-cpp-capacitor": { "optional": true },
-    "node-llama-cpp": { "optional": true }
+    "llama-cpp-capacitor": {
+      "optional": true
+    },
+    "node-llama-cpp": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
     "@types/turndown": "^5.0.5",
+    "buffer": "^6.0.3",
     "eslint": "^10.6.0",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
+    "vite": "^7.3.1",
     "vitest": "^4.1.9"
   }
 }
