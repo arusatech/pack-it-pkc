@@ -1,34 +1,119 @@
 # pack-it-pkc
 
-Convert documents to Markdown and pack them into PKC format.
+Convert documents to Markdown and pack them into **PKC** format.
 
-## Project structure
+JavaScript/TypeScript port of [Microsoft MarkItDown](ref-code/markitdown) with:
+
+- **No ONNX** — format detection uses magic bytes + `file-type` (replaces Magika/onnxruntime)
+- **GGUF inference** — vision/OCR via llama.cpp adapters (replaces cloud LLM for on-device use)
+- **Multi-platform** — Node, Capacitor mobile/PWA, Electron desktop
+
+## Architecture
 
 ```
 src/
-  convert/   # Document-to-Markdown conversion
-  detect/    # Format detection
-  pkc/       # PKC packing
-test/        # Tests
+  detect/       # Format detection (magic bytes, MIME/extension inference)
+  convert/      # MarkItDown orchestrator + format converters
+  inference/    # GGUF providers (Capacitor + Node/Electron)
+  pkc/          # PKC binary container (gzip JSON payload)
+  types/        # StreamInfo, DocumentConverter, exceptions
+  utils/        # ByteStream, URI parsing, normalization
+
+apps/
+  electron/     # Desktop app with optional node-llama-cpp GGUF models
+
+ref-code/
+  markitdown/   # Original Python reference (gitignored)
 ```
 
-## Requirements
+### Format detection (replaces Magika/ONNX)
 
-- Node.js 18+
+Python MarkItDown uses Magika, which runs a small ONNX model. This port uses:
+
+1. Magic-byte signatures for PDF, ZIP/Office, images, HTML, JSON
+2. [`file-type`](https://www.npmjs.com/package/file-type) when available
+3. Extension ↔ MIME cross-inference
+4. `chardet` for text charset
+
+### GGUF inference (replaces OpenAI vision / ONNX OCR)
+
+| Platform | Package | Use case |
+|----------|---------|----------|
+| Mobile / PWA | [`llama-cpp-capacitor`](https://www.npmjs.com/package/llama-cpp-capacitor) | Offline multimodal GGUF on iOS, Android, WASM |
+| Desktop / Node | [`node-llama-cpp`](https://www.npmjs.com/package/node-llama-cpp) | Electron app, server-side conversion |
+
+```typescript
+import { MarkItDown } from "@annadata/pack-it-pkc";
+import { CapacitorGgufProvider } from "@annadata/pack-it-pkc/inference/capacitor";
+
+const llm = await CapacitorGgufProvider.create();
+await llm.loadModel({ modelPath: "models/llava.gguf" });
+
+const md = new MarkItDown({ llmProvider: llm });
+const result = await md.convert("/path/to/scan.png");
+```
+
+### Supported converters
+
+| Format | Converter | Notes |
+|--------|-----------|-------|
+| txt, md, json | PlainText | ✅ |
+| html | Html | cheerio + turndown |
+| csv | Csv | Markdown tables |
+| ipynb | Ipynb | Notebook cells |
+| pdf | Pdf | pdf-parse; GGUF fallback for scans |
+| png, jpg | Image | Embedded + optional GGUF caption |
+| zip | Zip | Recursive member conversion |
+| docx, xlsx, pptx | — | Planned (mammoth/exceljs) |
+
+### PKC format
+
+Binary container: `PKC\x01` + uint32 length + gzip(JSON):
+
+```json
+{
+  "version": 1,
+  "title": "…",
+  "markdown": "…",
+  "source": "…",
+  "createdAt": "…"
+}
+```
 
 ## Setup
 
 ```bash
 npm install
+npm run build
+npm test
+```
+
+### Optional: GGUF peer dependencies
+
+```bash
+# Mobile / Capacitor / PWA
+npm install llama-cpp-capacitor
+
+# Desktop / Electron
+npm install node-llama-cpp
+```
+
+### Electron desktop
+
+```bash
+npm run build
+npm --prefix apps/electron install
+npm run electron:dev
 ```
 
 ## Scripts
 
-| Command       | Description                          |
-| ------------- | ------------------------------------ |
-| `npm run dev` | Build in watch mode                  |
-| `npm run build` | Build for production (`dist/`)     |
-| `npm test`    | Run tests with Vitest                |
+| Command | Description |
+|---------|-------------|
+| `npm run build` | Build `dist/` |
+| `npm run dev` | Watch mode |
+| `npm test` | Vitest |
+| `npm run electron:dev` | Desktop app |
 
 ## License
 

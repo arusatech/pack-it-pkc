@@ -1,34 +1,61 @@
 {
   "name": "@annadata/pack-it-pkc",
   "version": "1.0.0",
-  "description": "Convert documents to Markdown and pack into PKC format",
+  "description": "Convert documents to Markdown and pack into PKC format (MarkItDown JS port with GGUF inference)",
+  "type": "module",
   "main": "./dist/index.cjs",
-  "scripts": {
-    "test": "vitest",
-    "build": "tsup src/index.ts --format esm,cjs --dts",
-    "dev": "tsup src/index.ts --format esm,cjs --dts --watch"
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./inference/capacitor": {
+      "types": "./dist/inference/capacitor-provider.d.ts",
+      "import": "./dist/inference/capacitor-provider.js"
+    },
+    "./inference/node": {
+      "types": "./dist/inference/node-provider.d.ts",
+      "import": "./dist/inference/node-provider.js"
+    }
   },
-  "keywords": [],
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts src/inference/capacitor-provider.ts src/inference/node-provider.ts --format esm,cjs --dts --clean --external pdf-parse --external file-type --external fflate --external llama-cpp-capacitor --external node-llama-cpp",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "electron:dev": "npm run build && npm --prefix apps/electron run start"
+  },
+  "keywords": ["markdown", "document-converter", "pkc", "gguf", "llama-cpp", "markitdown"],
   "author": "Mr. Yakub Mohammad <yakub@annadata.ai>",
   "license": "MIT",
-  "type": "module",
+  "dependencies": {
+    "chardet": "^2.1.0",
+    "cheerio": "^1.1.0",
+    "fflate": "^0.8.2",
+    "file-type": "^21.0.0",
+    "turndown": "^7.2.0"
+  },
+  "peerDependencies": {
+    "llama-cpp-capacitor": ">=0.2.0",
+    "node-llama-cpp": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "llama-cpp-capacitor": { "optional": true },
+    "node-llama-cpp": { "optional": true }
+  },
+  "optionalDependencies": {
+    "pdf-parse": "^1.1.1"
+  },
   "devDependencies": {
     "@types/node": "^26.1.0",
+    "@types/turndown": "^5.0.5",
     "eslint": "^10.6.0",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
-  },
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": [
-    {
-      "/": {
-        "import": "./dist/index.js",
-        "require": "./dist/index.cjs",
-        "types": "./dist/index.d.ts"
-      }
-    }
-  ],
-  "files": "[\"dist\"]"
+  }
 }
