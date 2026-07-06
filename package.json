@@ -1,0 +1,34 @@
+{
+  "name": "@annadata/pack-it-pkc",
+  "version": "1.0.0",
+  "description": "Convert documents to Markdown and pack into PKC format",
+  "main": "./dist/index.cjs",
+  "scripts": {
+    "test": "vitest",
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch"
+  },
+  "keywords": [],
+  "author": "Mr. Yakub Mohammad <yakub@annadata.ai>",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "eslint": "^10.6.0",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": [
+    {
+      "/": {
+        "import": "./dist/index.js",
+        "require": "./dist/index.cjs",
+        "types": "./dist/index.d.ts"
+      }
+    }
+  ],
+  "files": "[\"dist\"]"
+}
