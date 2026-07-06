@@ -43,7 +43,11 @@ export class OutlookMsgConverter implements DocumentConverter {
 
     const lines = ["# Email Message", ""];
     if (data.senderName || data.senderEmail) {
-      lines.push(`**From:** ${[data.senderName, data.senderEmail].filter(Boolean).join(" <")}${data.senderEmail ? ">" : ""}`);
+      const from =
+        data.senderName && data.senderEmail
+          ? `${data.senderName} <${data.senderEmail}>`
+          : (data.senderName ?? data.senderEmail);
+      lines.push(`**From:** ${from}`);
     }
     if (data.recipients?.length) {
       lines.push(`**To:** ${data.recipients.map((r) => r.name ?? r.email).filter(Boolean).join(", ")}`);

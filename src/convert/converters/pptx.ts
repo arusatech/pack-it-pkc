@@ -64,7 +64,7 @@ export class PptxConverter implements DocumentConverter {
         parts.push(table);
       }
 
-      const images = await extractSlideImages(zip, slideXml, ctx);
+      const images = await extractSlideImages(zip, slidePath, slideXml, ctx);
       parts.push(...images);
 
       const notesPath = slidePath.replace("/slides/", "/notesSlides/").replace("slide", "notesSlide");
@@ -138,6 +138,7 @@ function extractTables(node: unknown): string[] {
 
 async function extractSlideImages(
   zip: JSZip,
+  slidePath: string,
   slideXml: string,
   ctx?: ConverterContext,
 ): Promise<string[]> {
@@ -146,7 +147,7 @@ async function extractSlideImages(
   const provider = ctx?.llmProvider;
 
   for (const relId of refs) {
-    const relsPath = "ppt/slides/_rels/" + slideXml.split("/").pop() + ".rels";
+    const relsPath = "ppt/slides/_rels/" + slidePath.split("/").pop() + ".rels";
     const relsXml = await zip.file(relsPath)?.async("string");
     if (!relsXml) continue;
 

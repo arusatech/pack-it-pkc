@@ -171,4 +171,12 @@ describe("Office converters (phase 2)", () => {
     expect(result.markdown).toContain("Revenue up 10%");
     expect(result.markdown).toContain("Slide number: 1");
   });
+
+  it("extracts PPTX slide images via _rels path", async () => {
+    const { createMinimalPptxWithImage } = await import("./office-fixtures.js");
+    const md = new MarkItDown();
+    const bytes = await createMinimalPptxWithImage();
+    const result = await md.convertBytes(bytes, { extension: ".pptx" });
+    expect(result.markdown).toContain("![chart.png](chart.png)");
+  });
 });
