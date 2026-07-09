@@ -12,3 +12,17 @@ export {
   FileConversionError,
 } from "./types/exceptions.js";
 export { ByteStream } from "./utils/byte-stream.js";
+export {
+  extractPdfBlocks,
+  extractPdfMarkdown,
+  blocksToMarkdown,
+  setPdfBlock,
+  getPdfBlock,
+  syncTableBlockContent,
+  savePdfBlocksLocal,
+  loadPdfBlocksLocal,
+  type PdfDocumentBlocks,
+  type PdfBlock,
+  type PdfBlockType,
+  type ExtractPdfOptions,
+} from "./convert/pdf/index.js";

@@ -29,11 +29,11 @@ export class PdfConverter implements DocumentConverter {
           model: ctx?.llmModel,
         });
         if (caption) {
-          return { markdown: caption, title: result.title ?? null };
+          return { markdown: caption, title: result.title ?? null, pdfBlocks: result.blocks };
         }
       }
 
-      return result;
+      return { markdown: result.markdown, title: result.title ?? null, pdfBlocks: result.blocks };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new MissingDependencyError("PdfConverter", `mupdf (${message})`);

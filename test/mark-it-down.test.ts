@@ -117,6 +117,55 @@ startxref
     });
     expect(result.markdown).toMatch(/Hello\s*PDF/i);
   });
+
+  it("returns editable block model for PDFs", async () => {
+    const { extractPdfBlocks, blocksToMarkdown } = await import("../src/convert/pdf/index.js");
+    const pdf = `%PDF-1.1
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 300]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
+4 0 obj<</Length 44>>stream
+BT /F1 24 Tf 72 200 Td (Hello PDF) Tj ET
+endstream
+endobj
+5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000270 00000 n 
+0000000369 00000 n 
+trailer<</Size 6/Root 1 0 R>>
+startxref
+428
+%%EOF`;
+    const doc = await extractPdfBlocks(new TextEncoder().encode(pdf), { sort: true });
+    expect(doc.version).toBe(1);
+    expect(doc.pageCount).toBe(1);
+    const page = doc.pages["0"];
+    expect(page?.order.length).toBeGreaterThan(0);
+    const firstId = page!.order[0]!;
+    const block = page!.blocks[firstId];
+    expect(block?.type).toMatch(/text|heading/);
+    expect(block?.content).toMatch(/Hello/i);
+
+    const edited = {
+      ...doc,
+      pages: {
+        ...doc.pages,
+        "0": {
+          ...page!,
+          blocks: {
+            ...page!.blocks,
+            [firstId]: { ...block!, content: "Edited hello" },
+          },
+        },
+      },
+    };
+    expect(blocksToMarkdown(edited)).toContain("Edited hello");
+  });
 });
 
 describe("Phase 3 converters", () => {

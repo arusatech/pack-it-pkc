@@ -4,6 +4,8 @@ import type { ByteStream } from "../utils/byte-stream.js";
 export interface DocumentConverterResult {
   markdown: string;
   title?: string | null;
+  /** Present when source was PDF — editable block model before markdown render. */
+  pdfBlocks?: import("../convert/pdf/pdf-block-types.js").PdfDocumentBlocks;
 }
 
 export interface ConverterContext {

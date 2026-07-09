@@ -7,46 +7,84 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="panel">
-      <header>
-        <h1>pack-it-pkc</h1>
-        <p class="subtitle">Upload a document, convert to Markdown, download the result for manual verification.</p>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="hdr-inner">
+          <button
+            type="button"
+            id="color-toggle"
+            class="hdr-btn color-toggle"
+            title="Monochrome — tap for colour"
+            aria-label="Toggle gray or colour mode"
+            aria-pressed="false"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 2a10 10 0 0 1 0 20" fill="currentColor" stroke="none" opacity="0.35" />
+            </svg>
+          </button>
+
+          <select id="file-select" class="file-select" disabled aria-label="Select file">
+            <option value="">No file</option>
+          </select>
+
+          <button type="button" id="add-file-btn" class="hdr-btn" title="Add file" aria-label="Add file">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+
+          <button type="button" id="process-btn" class="hdr-btn" disabled title="Process" aria-label="Process document">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          </button>
+
+          <button type="button" id="model-btn" class="hdr-btn" title="Model / export" aria-label="Model menu" aria-expanded="false">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+            </svg>
+          </button>
+        </div>
       </header>
 
-      <section class="upload-zone" id="drop-zone">
-        <input type="file" id="file-input" hidden />
-        <p><strong>Choose a file</strong> or drag it here</p>
-        <p class="hint">pdf, docx, xlsx, pptx, csv, html, epub, ipynb, images, zip, …</p>
-      </section>
+      <main class="app-body">
+        <input type="file" id="file-input" hidden multiple />
 
-      <div class="meta" id="file-meta" hidden>
-        <span id="file-name"></span>
-        <span id="file-size"></span>
-      </div>
+        <section class="drop-zone" id="drop-zone" hidden>
+          <p class="drop-label">Tap <strong>+</strong> or drop a file here</p>
+          <p class="drop-hint">pdf, docx, xlsx, pptx, csv, html, epub, …</p>
+        </section>
 
-      <div class="actions">
-        <button type="button" id="convert-btn" disabled>Convert</button>
-        <label class="checkbox">
-          <input type="checkbox" id="pkc-toggle" checked />
-          Also pack PKC
-        </label>
-      </div>
+        <section class="model-card" id="model-card" hidden>
+          <div class="model-card-head">
+            <span class="model-card-title">Export &amp; PKC</span>
+            <button type="button" id="model-close" class="hdr-btn hdr-btn-ghost" aria-label="Close model panel">×</button>
+          </div>
+          <div class="model-card-body">
+            <label class="model-check">
+              <input type="checkbox" id="pkc-toggle" checked />
+              Pack PKC on process
+            </label>
+            <div class="btn-row compact">
+              <button type="button" id="dl-md" class="btn-chip" disabled>Markdown</button>
+              <button type="button" id="dl-json" class="btn-chip" disabled hidden>Blocks JSON</button>
+              <button type="button" id="dl-pkc" class="btn-chip" disabled>PKC</button>
+            </div>
+            <p class="storage-hint">PDF blocks → <code>localStorage</code> · <code>pack-it-pkc:pdf-blocks:&lt;file&gt;</code></p>
+          </div>
+        </section>
 
-      <p class="status" id="status" role="status"></p>
+        <p class="status" id="status" role="status"></p>
 
-      <section class="downloads" id="downloads" hidden>
-        <h2>Download</h2>
-        <div class="btn-row">
-          <button type="button" id="dl-md" class="secondary">Markdown (.md)</button>
-          <button type="button" id="dl-pkc" class="secondary">PKC (.pkc)</button>
-        </div>
-      </section>
+        <section class="pdf-editor" id="pdf-editor" hidden></section>
 
-      <section class="preview" id="preview" hidden>
-        <h2>Preview</h2>
-        <pre id="markdown-out"></pre>
-      </section>
-    </main>
+        <section class="preview" id="preview" hidden>
+          <h2 class="section-title">Markdown preview</h2>
+          <pre id="markdown-out"></pre>
+        </section>
+      </main>
+    </div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
