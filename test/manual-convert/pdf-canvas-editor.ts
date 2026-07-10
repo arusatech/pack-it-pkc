@@ -52,6 +52,26 @@ const BLOCK_LABEL: Record<PdfBlockType, string> = {
   image: "Image",
 };
 
+function isPlaceholderBlockContent(block: PdfBlock): boolean {
+  if (block.type === "image" || block.segmentTag === "image") {
+    return block.type === "image" && !block.dataUrl;
+  }
+  if (!block.segmentTag) return false;
+
+  const tag = block.segmentTag as CanvasTagKind;
+  const title = block.title?.trim() ?? "";
+  const content = block.content?.trim() ?? "";
+
+  if (!content) return true;
+  if (title && content === title) return true;
+  if (content === TAG_LABEL[tag]) return true;
+  if (tag === "question" && content === "**Q:** ") return true;
+  if (tag === "answer" && content === "**A:** ") return true;
+  if (tag === "formula" && content === "$$\\cdots$$") return true;
+  if (tag === "table" && content.includes("| Column 1 | Column 2 |")) return true;
+  return false;
+}
+
 interface SelectionRect {
   x0: number;
   y0: number;
@@ -116,7 +136,22 @@ export class PdfCanvasEditor {
     this.onChange = options.onChange;
     this.imageColorMode = options.imageColorMode ?? false;
     this.mount();
-    void this.renderCurrentPage();
+    void this.bootstrap();
+  }
+
+  private async bootstrap(): Promise<void> {
+    await this.renderCurrentPage();
+    await this.processAllPendingBlocks();
+  }
+
+  private waitForPageImage(): Promise<void> {
+    if (this.pageImg.complete && this.pageImg.naturalWidth > 0) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.pageImg.addEventListener("load", () => resolve(), { once: true });
+      this.pageImg.addEventListener("error", () => resolve(), { once: true });
+    });
   }
 
   getDocument(): PdfDocumentBlocks {
@@ -244,6 +279,7 @@ export class PdfCanvasEditor {
       this.renderInfo = info;
       this.pageImg.src = dataUrl;
       this.applyPageColorFilter();
+      await this.waitForPageImage();
     } catch (err) {
       console.error("[PdfCanvasEditor] page render failed", err);
     } finally {
@@ -252,6 +288,8 @@ export class PdfCanvasEditor {
     this.updatePageNav();
     this.renderBlockPanel();
     this.drawOverlays();
+    await this.processPendingImagesOnCurrentPage({ refresh: false });
+    this.renderBlockPanel();
   }
 
   private updatePageNav(): void {
@@ -359,7 +397,8 @@ export class PdfCanvasEditor {
     return { ...patch, content: collapseNewlinesToSpaces(raw) };
   }
 
-  private async processBlock(blockId: string): Promise<void> {
+  private async processBlock(blockId: string, options?: { refresh?: boolean }): Promise<void> {
+    const refresh = options?.refresh !== false;
     if (this.processingBlockIds.has(blockId)) return;
 
     const pageKey = blockId.match(/^p(\d+)-/)?.[1] ?? String(this.currentPage);
@@ -367,7 +406,7 @@ export class PdfCanvasEditor {
     if (!block) return;
 
     this.processingBlockIds.add(blockId);
-    this.renderBlockPanel();
+    if (refresh) this.renderBlockPanel();
 
     try {
       if (block.type === "image" || block.segmentTag === "image") {
@@ -388,7 +427,31 @@ export class PdfCanvasEditor {
       }
     } finally {
       this.processingBlockIds.delete(blockId);
-      this.renderBlockPanel();
+      if (refresh) this.renderBlockPanel();
+    }
+  }
+
+  private async processAllPendingBlocks(): Promise<void> {
+    for (const page of Object.values(this.doc.pages)) {
+      for (const blockId of page.order) {
+        const block = page.blocks[blockId];
+        if (!block || !isPlaceholderBlockContent(block)) continue;
+        if (block.type === "image" || block.segmentTag === "image") continue;
+        await this.processBlock(blockId, { refresh: false });
+      }
+    }
+    this.renderBlockPanel();
+  }
+
+  private async processPendingImagesOnCurrentPage(options?: { refresh?: boolean }): Promise<void> {
+    const page = this.doc.pages[String(this.currentPage)];
+    if (!page) return;
+
+    for (const blockId of page.order) {
+      const block = page.blocks[blockId];
+      if (!block || (block.type !== "image" && block.segmentTag !== "image")) continue;
+      if (!isPlaceholderBlockContent(block)) continue;
+      await this.processBlock(blockId, options);
     }
   }
 
@@ -617,6 +680,7 @@ export class PdfCanvasEditor {
     this.closeTagMenu();
     this.drawOverlays();
     this.renderBlockPanel();
+    void this.processBlock(id);
     const card = this.blockPanel.querySelector(`[data-block-id="${id}"]`);
     card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
@@ -856,25 +920,6 @@ export class PdfCanvasEditor {
 
     const actions = document.createElement("div");
     actions.className = "pce-block-card-actions";
-
-    const processBtn = document.createElement("button");
-    processBtn.type = "button";
-    processBtn.className = "pce-head-btn pce-head-btn--icon";
-    const isProcessing = this.processingBlockIds.has(block.id);
-    processBtn.title = "Process attached region";
-    processBtn.setAttribute("aria-label", "Process attached region");
-    processBtn.disabled = isProcessing;
-    if (isProcessing) {
-      processBtn.innerHTML = `<span class="pce-head-btn-busy" aria-hidden="true">…</span>`;
-    } else {
-      processBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>`;
-    }
-    processBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void this.processBlock(block.id);
-    });
-
-    actions.append(processBtn);
 
     if (this.canToggleWrap(block)) {
       const wrapOn = this.wrapTextIds.has(block.id);

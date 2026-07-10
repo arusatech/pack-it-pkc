@@ -35,7 +35,6 @@ let processing = false;
 const fileInput = document.getElementById("file-input") as HTMLInputElement;
 const fileSelect = document.getElementById("file-select") as HTMLSelectElement;
 const addFileBtn = document.getElementById("add-file-btn")!;
-const processBtn = document.getElementById("process-btn") as HTMLButtonElement;
 const modelBtn = document.getElementById("model-btn") as HTMLButtonElement;
 const modelCard = document.getElementById("model-card")!;
 const modelClose = document.getElementById("model-close")!;
@@ -106,14 +105,12 @@ function refreshFileSelect(): void {
     opt.textContent = "No file";
     fileSelect.append(opt);
     fileSelect.disabled = true;
-    processBtn.disabled = true;
     dropZone.hidden = false;
     return;
   }
 
   dropZone.hidden = true;
   fileSelect.disabled = false;
-  processBtn.disabled = processing || !activeFileId;
 
   for (const item of fileQueue) {
     const opt = document.createElement("option");
@@ -163,15 +160,15 @@ function enqueueFiles(files: FileList | File[]): void {
 
   refreshFileSelect();
   resetOutput();
-  setStatus(`Added ${list.length} file${list.length > 1 ? "s" : ""} — tap Process`);
+  setStatus(`Added ${list.length} file${list.length > 1 ? "s" : ""}…`);
+  void runProcess();
 }
 
 function switchFile(fileId: string): void {
   if (!fileQueue.some((q) => q.id === fileId)) return;
   activeFileId = fileId;
   resetOutput();
-  const file = activeFile();
-  setStatus(file ? `Selected: ${file.name}` : "");
+  void runProcess();
 }
 
 function packToPkcBrowser(markdown: string, meta: { title?: string | null; source?: string }): Uint8Array {
@@ -244,7 +241,6 @@ async function runProcess(): Promise<void> {
   if (!file || processing) return;
 
   processing = true;
-  processBtn.disabled = true;
   setStatus("Processing…");
   destroyEditor();
 
@@ -301,8 +297,6 @@ fileInput.addEventListener("change", () => {
 fileSelect.addEventListener("change", () => {
   if (fileSelect.value) switchFile(fileSelect.value);
 });
-
-processBtn.addEventListener("click", () => void runProcess());
 
 modelBtn.addEventListener("click", () => {
   modelOpen = !modelOpen;
@@ -369,4 +363,4 @@ refreshFileSelect();
 updateColorToggleUi();
 updateModelUi();
 updateDownloadButtons();
-setStatus("Add a file, then Process");
+setStatus("Add a file to begin");
