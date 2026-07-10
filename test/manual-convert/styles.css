@@ -386,18 +386,12 @@ pre#markdown-out {
 @media (min-width: 1024px) {
   .pce-layout {
     grid-template-columns: minmax(600px, 1fr) minmax(280px, 340px);
-    align-items: stretch;
+    align-items: start;
   }
 
-  /*
-   * Canvas column sets the row height. Panel uses height:0 + min-height:100%
-   * so its content does not expand the row past the document; it scrolls inside.
-   * (This also overrides the base max-height: 100vh below.)
-   */
+  /* Height matched to PDF canvas via --pce-doc-height (set in PdfCanvasEditor). */
   .pce-block-panel {
-    height: 0;
-    min-height: 100%;
-    max-height: none;
+    max-height: var(--pce-doc-height, 110vh);
     overflow: auto;
   }
 }

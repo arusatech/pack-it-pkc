@@ -280,6 +280,7 @@ export class PdfCanvasEditor {
     this.pageImg.addEventListener("load", () => {
       this.drawOverlays();
       this.updateLiveRect();
+      this.syncBlockPanelHeight();
     });
 
     this.overlayLayer = document.createElement("div");
@@ -348,8 +349,17 @@ export class PdfCanvasEditor {
     this.updatePageNav();
     this.renderBlockPanel();
     this.drawOverlays();
+    this.syncBlockPanelHeight();
     await this.processPendingImagesOnCurrentPage({ refresh: false });
     this.renderBlockPanel();
+  }
+
+  /** Match blocks column max-height to the loaded PDF canvas height. */
+  private syncBlockPanelHeight(): void {
+    const h = Math.round(this.wrapRef.getBoundingClientRect().height);
+    if (h > 0) {
+      this.root.style.setProperty("--pce-doc-height", `${h}px`);
+    }
   }
 
   private updatePageNav(): void {
