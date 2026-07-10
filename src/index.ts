@@ -25,4 +25,13 @@ export {
   type PdfBlock,
   type PdfBlockType,
   type ExtractPdfOptions,
-} from "./convert/pdf/index.js";
+} from "./pdf/index.js";
+export {
+  normalizeChemistryWithAssist,
+  llmPlainToMhchem,
+} from "./pdf/chemistry-llm-assist.js";
+export {
+  normalizeMathWithAssist,
+  llmPlainToLatex,
+} from "./pdf/math-llm-assist.js";
+

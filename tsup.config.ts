@@ -2,6 +2,9 @@ import { defineConfig } from "tsup";
 
 const external = [
   "mupdf",
+  "katex",
+  "katex/contrib/auto-render",
+  "katex/contrib/mhchem",
   "file-type",
   "fflate",
   "mammoth",

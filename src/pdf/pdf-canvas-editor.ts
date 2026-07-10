@@ -4,26 +4,44 @@ import type {
   PdfBBox,
   PdfDocumentBlocks,
   PdfImageBlock,
+  PdfQaBlock,
   PdfTableBlock,
   PdfTextBlock,
-} from "../../src/convert/pdf/pdf-block-types.js";
-import { sortBlocksByPosition } from "../../src/convert/pdf/pdf-block-types.js";
-import { blocksToMarkdown, syncTableBlockContent, tableRowsToMarkdown } from "../../src/convert/pdf/pdf-blocks-to-markdown.js";
-import { savePdfBlocksLocal } from "./pdf-blocks-local-storage.js";
+} from "./pdf-block-types.js";
+import { sortBlocksByPosition } from "./pdf-block-types.js";
+import { blocksToMarkdown, syncTableBlockContent, tableRowsToMarkdown } from "./pdf-blocks-to-markdown.js";
+import { savePdfBlocksLocal } from "./pdf-blocks-storage.js";
 import { processBlockRegionFromPdf } from "./pdf-block-region-processor.js";
+import { asQaBlock, isQaPlaceholder, isQaSegment, qaPart, qaPartsToContent } from "./pdf-qa.js";
+import { containsMathOrChemistry, mountFormulaPreview } from "./katex-service.js";
+import { llmPlainToMhchem } from "./chemistry-llm-assist.js";
+import { llmPlainToLatex } from "./math-llm-assist.js";
 import { collapseNewlinesToSpaces, WRAP_TOGGLE_ICON_SVG } from "./pdf-block-text-wrap.js";
 import { renderPdfPageDataUrl, type PageRenderInfo } from "./pdf-page-renderer.js";
+import type { GgufInferenceProvider } from "../inference/types.js";
+import { getActiveModelId } from "../inference/model-session.js";
+import { LFM2_CHAT_MODEL_ID } from "../inference/model-catalog.js";
 
-type CanvasTagKind = "text" | "table" | "image" | "question" | "answer" | "formula";
+type CanvasTagKind = "text" | "table" | "image" | "qa" | "math" | "formula" | "question" | "answer";
 
-const TAG_KINDS: CanvasTagKind[] = ["text", "table", "image", "question", "answer", "formula"];
+/** Tags shown in the “Tag this region” menu (question + answer merged as Q & A). */
+const TAG_MENU_KINDS: Array<"text" | "table" | "image" | "qa" | "math" | "formula"> = [
+  "text",
+  "table",
+  "image",
+  "qa",
+  "math",
+  "formula",
+];
 
 const TAG_COLOR: Record<CanvasTagKind, string> = {
   text: "#3880ff",
   table: "#ffc409",
   image: "#7044ff",
-  question: "#2dd36f",
-  answer: "#06b6d4",
+  qa: "#14b8a6",
+  question: "#14b8a6",
+  answer: "#14b8a6",
+  math: "#2dd36f",
   formula: "#eb445a",
 };
 
@@ -31,8 +49,10 @@ const TAG_LABEL: Record<CanvasTagKind, string> = {
   text: "Text",
   table: "Table",
   image: "Image",
-  question: "Question",
-  answer: "Answer",
+  qa: "Q & A",
+  question: "Q & A",
+  answer: "Q & A",
+  math: "Math",
   formula: "Formula",
 };
 
@@ -42,6 +62,7 @@ const BLOCK_COLOR: Record<PdfBlockType, string> = {
   list: "#06b6d4",
   table: TAG_COLOR.table,
   image: TAG_COLOR.image,
+  qa: TAG_COLOR.qa,
 };
 
 const BLOCK_LABEL: Record<PdfBlockType, string> = {
@@ -50,9 +71,11 @@ const BLOCK_LABEL: Record<PdfBlockType, string> = {
   list: "List",
   table: "Table",
   image: "Image",
+  qa: "Q & A",
 };
 
 function isPlaceholderBlockContent(block: PdfBlock): boolean {
+  if (isQaSegment(block)) return isQaPlaceholder(block);
   if (block.type === "image" || block.segmentTag === "image") {
     return block.type === "image" && !block.dataUrl;
   }
@@ -65,9 +88,8 @@ function isPlaceholderBlockContent(block: PdfBlock): boolean {
   if (!content) return true;
   if (title && content === title) return true;
   if (content === TAG_LABEL[tag]) return true;
-  if (tag === "question" && content === "**Q:** ") return true;
-  if (tag === "answer" && content === "**A:** ") return true;
-  if (tag === "formula" && content === "$$\\cdots$$") return true;
+  if (tag === "formula" && (content === "$$\\cdots$$" || content === "\\ce{}" || content.startsWith("(formula"))) return true;
+  if (tag === "math" && (content === "$$\\cdots$$" || content.startsWith("(math"))) return true;
   if (tag === "table" && content.includes("| Column 1 | Column 2 |")) return true;
   return false;
 }
@@ -83,7 +105,7 @@ interface TagMenuState {
   screenX: number;
   screenY: number;
   selection: SelectionRect;
-  tag: CanvasTagKind;
+  tag: (typeof TAG_MENU_KINDS)[number];
   title: string;
   description: string;
 }
@@ -95,6 +117,11 @@ export interface PdfCanvasEditorOptions {
   doc: PdfDocumentBlocks;
   imageColorMode?: boolean;
   onChange?: (doc: PdfDocumentBlocks, markdown: string) => void;
+  /** Optional GGUF provider for AI fix formula/math. */
+  llmProvider?: GgufInferenceProvider | null;
+  /** Active assist model id (defaults to session active / LFM2). */
+  getAssistModelId?: () => string;
+  onAssistProgress?: (message: string) => void;
 }
 
 export class PdfCanvasEditor {
@@ -103,6 +130,9 @@ export class PdfCanvasEditor {
   private readonly pdfBytes: Uint8Array;
   private doc: PdfDocumentBlocks;
   private readonly onChange?: (doc: PdfDocumentBlocks, markdown: string) => void;
+  private llmProvider: GgufInferenceProvider | null;
+  private readonly getAssistModelId: () => string;
+  private readonly onAssistProgress?: (message: string) => void;
 
   private currentPage = 0;
   private selectedId: string | null = null;
@@ -114,6 +144,7 @@ export class PdfCanvasEditor {
   private tagMenu: TagMenuState | null = null;
   private imageColorMode: boolean;
   private processingBlockIds = new Set<string>();
+  private aiFixingIds = new Set<string>();
   /** Per-block newline collapse (annadata DocCanvasEditor wrap toggle). */
   private wrapTextIds = new Set<string>();
   private wrapOriginals = new Map<string, string>();
@@ -134,14 +165,43 @@ export class PdfCanvasEditor {
     this.pdfBytes = options.pdfBytes;
     this.doc = options.doc;
     this.onChange = options.onChange;
+    this.llmProvider = options.llmProvider ?? null;
+    this.getAssistModelId = options.getAssistModelId ?? (() => getActiveModelId() || LFM2_CHAT_MODEL_ID);
+    this.onAssistProgress = options.onAssistProgress;
     this.imageColorMode = options.imageColorMode ?? false;
     this.mount();
     void this.bootstrap();
   }
 
+  setLlmProvider(provider: GgufInferenceProvider | null): void {
+    this.llmProvider = provider;
+  }
+
   private async bootstrap(): Promise<void> {
+    this.normalizeQaBlocks();
     await this.renderCurrentPage();
     await this.processAllPendingBlocks();
+  }
+
+  private normalizeQaBlocks(): void {
+    let changed = false;
+    const pages = { ...this.doc.pages };
+
+    for (const [pageKey, page] of Object.entries(pages)) {
+      const blocks = { ...page.blocks };
+      for (const [blockId, block] of Object.entries(blocks)) {
+        if (isQaSegment(block) && block.type !== "qa") {
+          blocks[blockId] = asQaBlock(block);
+          changed = true;
+        }
+      }
+      pages[pageKey] = { ...page, blocks };
+    }
+
+    if (changed) {
+      this.doc = { ...this.doc, pages };
+      this.emitChange();
+    }
   }
 
   private waitForPageImage(): Promise<void> {
@@ -366,6 +426,7 @@ export class PdfCanvasEditor {
   }
 
   private blockTagLabel(block: PdfBlock): string {
+    if (isQaSegment(block)) return TAG_LABEL.qa;
     if (block.segmentTag && block.segmentTag in TAG_LABEL) {
       return TAG_LABEL[block.segmentTag as CanvasTagKind];
     }
@@ -373,6 +434,7 @@ export class PdfCanvasEditor {
   }
 
   private blockTagColor(block: PdfBlock): string {
+    if (isQaSegment(block)) return TAG_COLOR.qa;
     if (block.segmentTag && block.segmentTag in TAG_COLOR) {
       return TAG_COLOR[block.segmentTag as CanvasTagKind];
     }
@@ -380,7 +442,7 @@ export class PdfCanvasEditor {
   }
 
   private canToggleWrap(block: PdfBlock): boolean {
-    return block.type !== "image" && block.type !== "table";
+    return block.type !== "image" && block.type !== "table" && block.type !== "qa" && !isQaSegment(block);
   }
 
   private blockContentForProcessing(block: PdfBlock): PdfBlock {
@@ -486,7 +548,7 @@ export class PdfCanvasEditor {
 
   private onPointerDown(e: PointerEvent): void {
     if (this.tagMenu) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     this.isDrawing = true;
     const pos = this.getImagePos(e);
     this.drawStart = pos;
@@ -583,7 +645,7 @@ export class PdfCanvasEditor {
 
     const grid = document.createElement("div");
     grid.className = "pce-tag-grid";
-    for (const kind of TAG_KINDS) {
+    for (const kind of TAG_MENU_KINDS) {
       const btn = document.createElement("button");
       btn.type = "button";
       const selected = menu.tag === kind;
@@ -686,7 +748,7 @@ export class PdfCanvasEditor {
   }
 
   private blockFromCanvasTag(
-    tag: CanvasTagKind,
+    tag: TagMenuState["tag"],
     title: string,
     description: string,
     id: string,
@@ -737,13 +799,30 @@ export class PdfCanvasEditor {
       return tableBlock;
     }
 
+    if (tag === "qa") {
+      const initialQuestion = combined || titleTrim;
+      const qaBlock: PdfQaBlock = {
+        id,
+        type: "qa",
+        page: pageIndex,
+        bbox,
+        title: titleTrim || undefined,
+        segmentTag: "qa",
+        question: qaPart(initialQuestion),
+        answer: qaPart(""),
+        content: qaPartsToContent(initialQuestion, ""),
+      };
+      return qaBlock;
+    }
+
     let content = combined;
-    if (tag === "question") {
-      content = combined || "**Q:** ";
-    } else if (tag === "answer") {
-      content = combined || "**A:** ";
-    } else if (tag === "formula") {
+    let contentFormat: PdfTextBlock["contentFormat"];
+    if (tag === "formula") {
+      content = combined || "\\ce{}";
+      contentFormat = "mhchem";
+    } else if (tag === "math") {
       content = combined || "$$\\cdots$$";
+      contentFormat = "latex";
     } else if (!content) {
       content = titleTrim || TAG_LABEL[tag];
     }
@@ -755,6 +834,7 @@ export class PdfCanvasEditor {
       bbox,
       title: titleTrim || undefined,
       segmentTag: tag,
+      contentFormat,
       content,
       lines: content.split("\n"),
     };
@@ -921,6 +1001,24 @@ export class PdfCanvasEditor {
     const actions = document.createElement("div");
     actions.className = "pce-block-card-actions";
 
+    const processBtn = document.createElement("button");
+    processBtn.type = "button";
+    processBtn.className = "pce-head-btn pce-head-btn--icon";
+    const isProcessing = this.processingBlockIds.has(block.id);
+    processBtn.title = "Process attached region";
+    processBtn.setAttribute("aria-label", "Process attached region");
+    processBtn.disabled = isProcessing;
+    if (isProcessing) {
+      processBtn.innerHTML = `<span class="pce-head-btn-busy" aria-hidden="true">…</span>`;
+    } else {
+      processBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>`;
+    }
+    processBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.processBlock(block.id);
+    });
+    actions.append(processBtn);
+
     if (this.canToggleWrap(block)) {
       const wrapOn = this.wrapTextIds.has(block.id);
       const wrapBtn = document.createElement("button");
@@ -989,6 +1087,12 @@ export class PdfCanvasEditor {
         area.value = synced.content;
       });
       card.append(syncBtn);
+    } else if (block.type === "qa" || isQaSegment(block)) {
+      const qa = block.type === "qa" ? block : asQaBlock(block);
+      card.classList.add("pce-block-card--qa");
+      card.append(this.createQaSubBlocks(block.id, qa));
+    } else if (block.segmentTag === "formula" || block.segmentTag === "math") {
+      card.append(this.createFormulaEditor(block));
     } else {
       const area = document.createElement("textarea");
       area.className = "pce-textarea";
@@ -1006,6 +1110,199 @@ export class PdfCanvasEditor {
     });
 
     return card;
+  }
+
+  private createFormulaEditor(block: PdfBlock): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "pce-formula-editor";
+
+    const area = document.createElement("textarea");
+    area.className = "pce-textarea";
+    area.rows = 4;
+    area.placeholder =
+      block.segmentTag === "formula"
+        ? "Chemistry — e.g. \\ce{Zn(s) + Cu^{2+}(aq) -> Zn^{2+}(aq) + Cu(s)}"
+        : "Math — e.g. $$E = mc^{2}$$";
+    area.value = block.content;
+    area.addEventListener("click", (e) => e.stopPropagation());
+
+    const preview = document.createElement("div");
+    preview.className = "pce-formula-preview";
+    const previewLabel = document.createElement("span");
+    previewLabel.className = "pce-formula-preview-label";
+    previewLabel.textContent = block.segmentTag === "formula" ? "Formula preview" : "Math preview";
+    const previewBody = document.createElement("div");
+    previewBody.className = "pce-formula-render";
+    previewBody.setAttribute("aria-label", previewLabel.textContent);
+    preview.append(previewLabel, previewBody);
+
+    const refreshPreview = (content: string) => {
+      const show =
+        !!content.trim() &&
+        (containsMathOrChemistry(content) ||
+          /\\ce\{|\\frac|\\sqrt|\^{|_\{|\$/.test(content));
+      preview.hidden = !show;
+      if (show) {
+        mountFormulaPreview(previewBody, content, {
+          displayMode: block.segmentTag === "formula" || content.trim().startsWith("$$"),
+        });
+      } else {
+        previewBody.innerHTML = "";
+      }
+    };
+
+    area.addEventListener("input", () => {
+      const format = block.segmentTag === "formula" ? "mhchem" : "latex";
+      this.patchBlock(block.id, {
+        content: area.value,
+        contentFormat: format,
+        lines: area.value.split("\n"),
+      });
+      refreshPreview(area.value);
+    });
+
+    const actions = document.createElement("div");
+    actions.className = "pce-formula-actions";
+    const aiBtn = document.createElement("button");
+    aiBtn.type = "button";
+    aiBtn.className = "pce-small-btn pce-ai-fix-btn";
+    const isFixing = this.aiFixingIds.has(block.id);
+    aiBtn.disabled = isFixing;
+    aiBtn.textContent = isFixing
+      ? "AI fixing…"
+      : block.segmentTag === "formula"
+        ? "AI fix formula"
+        : "AI fix math";
+    aiBtn.title = this.llmProvider
+      ? "Refine with the active GGUF chat model"
+      : "Requires an LLM provider (download a chat model and ensure llama-cpp-capacitor / node-llama-cpp is available)";
+    aiBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.aiFixBlock(block.id, area, refreshPreview, aiBtn);
+    });
+    actions.append(aiBtn);
+
+    wrap.append(area, preview, actions);
+    refreshPreview(block.content);
+    return wrap;
+  }
+
+  private async aiFixBlock(
+    blockId: string,
+    area: HTMLTextAreaElement,
+    refreshPreview: (content: string) => void,
+    aiBtn: HTMLButtonElement,
+  ): Promise<void> {
+    if (this.aiFixingIds.has(blockId)) return;
+
+    const pageKey = blockId.match(/^p(\d+)-/)?.[1] ?? String(this.currentPage);
+    const block = this.doc.pages[pageKey]?.blocks[blockId];
+    if (!block) return;
+
+    if (!this.llmProvider) {
+      this.onAssistProgress?.(
+        "No LLM provider — install llama-cpp-capacitor (browser) or pass a GgufInferenceProvider",
+      );
+      return;
+    }
+
+    this.aiFixingIds.add(blockId);
+    aiBtn.disabled = true;
+    aiBtn.textContent = "AI fixing…";
+
+    try {
+      const plain = area.value.trim() || block.content;
+      const modelId = this.getAssistModelId();
+      const opts = {
+        loadModelIfNeeded: true as const,
+        modelId,
+        onProgress: this.onAssistProgress,
+      };
+
+      let next: string | null = null;
+      if (block.segmentTag === "formula") {
+        next = await llmPlainToMhchem(plain, this.llmProvider, opts);
+      } else if (block.segmentTag === "math") {
+        next = await llmPlainToLatex(plain, this.llmProvider, opts);
+      }
+
+      if (next) {
+        const format = block.segmentTag === "formula" ? "mhchem" : "latex";
+        this.patchBlock(blockId, {
+          content: next,
+          contentFormat: format,
+          lines: next.split("\n"),
+        });
+        area.value = next;
+        refreshPreview(next);
+        this.onAssistProgress?.("AI fix applied");
+      } else {
+        this.onAssistProgress?.("AI fix returned no result — keep rule-based content");
+      }
+    } finally {
+      this.aiFixingIds.delete(blockId);
+      this.renderBlockPanel();
+    }
+  }
+
+  private createQaSubBlocks(blockId: string, qa: PdfQaBlock): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "pce-qa-block";
+
+    const qSub = document.createElement("div");
+    qSub.className = "pce-qa-sub pce-qa-sub--question";
+    const qLabel = document.createElement("span");
+    qLabel.className = "pce-qa-sub-label";
+    qLabel.textContent = "Question";
+    const qArea = document.createElement("textarea");
+    qArea.className = "pce-textarea pce-qa-textarea";
+    qArea.rows = 4;
+    qArea.placeholder = "Question text";
+    qArea.value = qa.question.content;
+    qArea.addEventListener("input", () => {
+      this.patchQaPart(blockId, "question", qArea.value);
+    });
+    qArea.addEventListener("click", (e) => e.stopPropagation());
+    qSub.append(qLabel, qArea);
+
+    const aSub = document.createElement("div");
+    const answerEmpty = !qa.answer.content.trim();
+    aSub.className = `pce-qa-sub pce-qa-sub--answer${answerEmpty ? " pce-qa-sub--empty" : ""}`;
+    const aLabel = document.createElement("span");
+    aLabel.className = "pce-qa-sub-label";
+    aLabel.textContent = "Answer";
+    const aArea = document.createElement("textarea");
+    aArea.className = "pce-textarea pce-qa-textarea";
+    aArea.rows = 4;
+    aArea.placeholder = "Provide answer…";
+    aArea.value = qa.answer.content;
+    aArea.addEventListener("input", () => {
+      this.patchQaPart(blockId, "answer", aArea.value);
+      aSub.classList.toggle("pce-qa-sub--empty", !aArea.value.trim());
+    });
+    aArea.addEventListener("click", (e) => e.stopPropagation());
+    aSub.append(aLabel, aArea);
+
+    wrap.append(qSub, aSub);
+    return wrap;
+  }
+
+  private patchQaPart(blockId: string, part: "question" | "answer", value: string): void {
+    const pageKey = blockId.match(/^p(\d+)-/)?.[1] ?? String(this.currentPage);
+    const existing = this.doc.pages[pageKey]?.blocks[blockId];
+    if (!existing) return;
+
+    const qa = existing.type === "qa" ? existing : asQaBlock(existing);
+    const question = part === "question" ? value : qa.question.content;
+    const answer = part === "answer" ? value : qa.answer.content;
+
+    this.patchBlock(blockId, {
+      type: "qa",
+      segmentTag: "qa",
+      question: qaPart(question),
+      answer: qaPart(answer),
+      content: qaPartsToContent(question, answer),
+    });
   }
 
   private patchBlock(blockId: string, patch: Partial<PdfBlock>): void {

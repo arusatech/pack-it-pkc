@@ -6,7 +6,7 @@ export interface PdfBBox {
   h: number;
 }
 
-export type PdfBlockType = "text" | "heading" | "list" | "table" | "image";
+export type PdfBlockType = "text" | "heading" | "list" | "table" | "image" | "qa";
 
 export interface PdfBlockBase {
   /** Stable id, e.g. `p0-b3`. */
@@ -19,8 +19,10 @@ export interface PdfBlockBase {
   content: string;
   /** Optional short label from canvas tagging. */
   title?: string;
-  /** Canvas segment tag (text, question, table, …). */
+  /** Canvas segment tag (text, question, table, formula, …). */
   segmentTag?: string;
+  /** Hint for renderers: formula → mhchem; math → KaTeX LaTeX. */
+  contentFormat?: "plain" | "mhchem" | "mixed" | "latex";
 }
 
 export interface PdfTextBlock extends PdfBlockBase {
@@ -41,7 +43,20 @@ export interface PdfImageBlock extends PdfBlockBase {
   dataUrl?: string;
 }
 
-export type PdfBlock = PdfTextBlock | PdfTableBlock | PdfImageBlock;
+export interface PdfQaPart {
+  content: string;
+  lines?: string[];
+}
+
+/** Question + answer pair tagged on the canvas as one region. */
+export interface PdfQaBlock extends PdfBlockBase {
+  type: "qa";
+  segmentTag: "qa";
+  question: PdfQaPart;
+  answer: PdfQaPart;
+}
+
+export type PdfBlock = PdfTextBlock | PdfTableBlock | PdfImageBlock | PdfQaBlock;
 
 /** One page: blocks keyed by id plus sorted reading order. */
 export interface PdfPageBlocks {
@@ -74,11 +89,11 @@ export function rectToBbox(rect: [number, number, number, number]): PdfBBox {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-export function wordsToBbox(words: Array<{ x0: number; x1: number; top: number }>): PdfBBox {
+export function wordsToBbox(words: Array<{ x0: number; x1: number; top: number; bottom?: number }>): PdfBBox {
   const x0 = Math.min(...words.map((w) => w.x0));
   const x1 = Math.max(...words.map((w) => w.x1));
   const top = Math.min(...words.map((w) => w.top));
-  const bottom = Math.max(...words.map((w) => w.bottom));
+  const bottom = Math.max(...words.map((w) => w.bottom ?? w.top + 14));
   return { x: x0, y: top, w: x1 - x0, h: bottom - top };
 }
 

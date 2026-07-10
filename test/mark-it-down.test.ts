@@ -119,7 +119,7 @@ startxref
   });
 
   it("returns editable block model for PDFs", async () => {
-    const { extractPdfBlocks, blocksToMarkdown } = await import("../src/convert/pdf/index.js");
+    const { extractPdfBlocks, blocksToMarkdown } = await import("../src/pdf/index.js");
     const pdf = `%PDF-1.1
 1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
@@ -170,7 +170,7 @@ startxref
 
 describe("Phase 3 converters", () => {
   it("merges MasterFormat partial numbering", async () => {
-    const { mergePartialNumberingLines } = await import("../src/convert/pdf/merge-partial-numbering.js");
+    const { mergePartialNumberingLines } = await import("../src/pdf/merge-partial-numbering.js");
     const input = ".1\nThe intent of this section.\n\n.2\nSecond item.";
     const out = mergePartialNumberingLines(input);
     expect(out).toContain(".1 The intent");

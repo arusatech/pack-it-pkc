@@ -2,7 +2,7 @@ import type { StreamInfo } from "../../types/stream-info.js";
 import type { ByteStream } from "../../utils/byte-stream.js";
 import type { ConverterContext, DocumentConverter, DocumentConverterResult } from "../../types/converter.js";
 import { MissingDependencyError } from "../../types/exceptions.js";
-import { extractPdfMarkdown } from "../pdf/pdf-extractor.js";
+import { extractPdfMarkdown } from "../../pdf/pdf-extractor.js";
 
 const ACCEPTED_EXTENSIONS = [".pdf"];
 const ACCEPTED_MIME = ["application/pdf", "application/x-pdf"];

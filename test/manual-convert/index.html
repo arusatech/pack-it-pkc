@@ -52,10 +52,20 @@
 
         <section class="model-card" id="model-card" hidden>
           <div class="model-card-head">
-            <span class="model-card-title">Export &amp; PKC</span>
+            <span class="model-card-title">Model &amp; export</span>
             <button type="button" id="model-close" class="hdr-btn hdr-btn-ghost" aria-label="Close model panel">×</button>
           </div>
           <div class="model-card-body">
+            <label class="model-field">
+              <span class="model-field-label">GGUF model</span>
+              <select id="gguf-model-select" class="file-select" aria-label="Select GGUF model"></select>
+            </label>
+            <div class="btn-row compact">
+              <button type="button" id="gguf-download-btn" class="btn-chip">Download</button>
+              <button type="button" id="gguf-set-active-btn" class="btn-chip">Set active</button>
+            </div>
+            <p class="storage-hint" id="gguf-model-status">Select a chat model for AI formula / math fix</p>
+            <hr class="model-divider" />
             <label class="model-check">
               <input type="checkbox" id="pkc-toggle" checked />
               Pack PKC on process

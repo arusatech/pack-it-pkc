@@ -1,9 +1,12 @@
 import mupdf from "mupdf";
-import { extractFormSegmentsFromWords } from "../../src/convert/pdf/extract-form-segments.js";
-import { pageToWords } from "../../src/convert/pdf/mupdf-words.js";
-import type { PdfBBox, PdfBlock, PdfTableBlock, PdfTextBlock } from "../../src/convert/pdf/pdf-block-types.js";
-import { tableRowsToMarkdown } from "../../src/convert/pdf/pdf-blocks-to-markdown.js";
-import type { PdfPageLike, PdfWord } from "../../src/convert/pdf/pdf-word-types.js";
+import { plainChemistryToMhchem } from "./chemistry-normalize.js";
+import { extractFormSegmentsFromWords } from "./extract-form-segments.js";
+import { plainMathToLatex } from "./math-normalize.js";
+import { pageToWords } from "./mupdf-words.js";
+import type { PdfBBox, PdfBlock, PdfQaBlock, PdfTableBlock, PdfTextBlock } from "./pdf-block-types.js";
+import { tableRowsToMarkdown } from "./pdf-blocks-to-markdown.js";
+import { asQaBlock, isQaSegment, qaPart, qaPartsToContent } from "./pdf-qa.js";
+import type { PdfPageLike, PdfWord } from "./pdf-word-types.js";
 
 /** Keep words with horizontal overlap and at least half their height inside the bbox. */
 function wordOverlapsBbox(word: PdfWord, bbox: PdfBBox, minVerticalOverlap = 0.5): boolean {
@@ -116,6 +119,49 @@ export function processBlockRegionFromPdf(
 
       const content = text || block.content;
 
+      if (block.type === "qa" || isQaSegment(block)) {
+        const qa = block.type === "qa" ? block : asQaBlock(block);
+        const questionContent = text || qa.question.content;
+        const qaPatch: Partial<PdfQaBlock> = {
+          type: "qa",
+          segmentTag: "qa",
+          question: qaPart(questionContent),
+          answer: qa.answer,
+          content: qaPartsToContent(questionContent, qa.answer.content),
+        };
+        return qaPatch;
+      }
+
+      if (block.segmentTag === "formula") {
+        const plain = text.trim() || stripFormulaPlaceholder(block.content);
+        const mhchem = plain
+          ? plainChemistryToMhchem(plain)
+          : "(formula — no text found; edit manually)";
+        const formulaPatch: Partial<PdfTextBlock> = {
+          type: "text",
+          segmentTag: "formula",
+          contentFormat: "mhchem",
+          content: mhchem,
+          lines: mhchem.split("\n"),
+        };
+        return formulaPatch;
+      }
+
+      if (block.segmentTag === "math") {
+        const plain = text.trim() || stripMathPlaceholder(block.content);
+        const latex = plain
+          ? plainMathToLatex(plain, plain.length > 60)
+          : "(math — no text found; edit manually)";
+        const mathPatch: Partial<PdfTextBlock> = {
+          type: "text",
+          segmentTag: "math",
+          contentFormat: "latex",
+          content: latex,
+          lines: latex.split("\n"),
+        };
+        return mathPatch;
+      }
+
       const textPatch: Partial<PdfTextBlock> = {
         type: block.type === "heading" || block.type === "list" ? block.type : "text",
         content,
@@ -128,4 +174,16 @@ export function processBlockRegionFromPdf(
   } finally {
     doc.destroy();
   }
+}
+
+function stripFormulaPlaceholder(content: string): string {
+  const t = content.trim();
+  if (!t || t === "$$\\cdots$$" || t === "Formula" || t === "\\ce{}") return "";
+  return t;
+}
+
+function stripMathPlaceholder(content: string): string {
+  const t = content.trim();
+  if (!t || t === "$$\\cdots$$" || t === "Math") return "";
+  return t;
 }

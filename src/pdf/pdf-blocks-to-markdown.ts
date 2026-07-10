@@ -1,4 +1,5 @@
-import type { PdfBlock, PdfDocumentBlocks, PdfTableBlock } from "./pdf-block-types.js";
+import type { PdfBlock, PdfDocumentBlocks, PdfQaBlock, PdfTableBlock } from "./pdf-block-types.js";
+import { qaPartsToContent } from "./pdf-qa.js";
 import { mergePartialNumberingLines } from "./merge-partial-numbering.js";
 
 export function tableRowsToMarkdown(rows: string[][]): string {
@@ -43,6 +44,10 @@ function renderBlock(block: PdfBlock): string {
       const alt = block.content.trim() || "image";
       if (block.dataUrl) return `![${alt}](${block.dataUrl})`;
       return `![${alt}]()`;
+    }
+    case "qa": {
+      const qa = block as PdfQaBlock;
+      return qaPartsToContent(qa.question.content, qa.answer.content);
     }
   }
 }

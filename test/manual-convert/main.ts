@@ -1,10 +1,24 @@
 import { Buffer } from "buffer";
 import { gzipSync } from "fflate";
+import "katex/dist/katex.min.css";
 import { MarkItDown } from "../../src/convert/mark-it-down.js";
-import { extractPdfBlocks, blocksToMarkdown } from "../../src/convert/pdf/index.js";
-import type { PdfDocumentBlocks } from "../../src/convert/pdf/pdf-block-types.js";
-import { loadPdfBlocksLocal, savePdfBlocksLocal } from "./pdf-blocks-local-storage.js";
-import { PdfCanvasEditor } from "./pdf-canvas-editor.js";
+import {
+  extractPdfBlocks,
+  blocksToMarkdown,
+  loadPdfBlocksLocal,
+  savePdfBlocksLocal,
+  type PdfDocumentBlocks,
+} from "../../src/pdf/index.js";
+import { PdfCanvasEditor } from "../../src/pdf/editor.js";
+import type { GgufInferenceProvider } from "../../src/inference/types.js";
+import {
+  download_model,
+  getActiveModelId,
+  isChatCapableModel,
+  listModelsWithStatus,
+  LFM2_CHAT_MODEL_ID,
+  setActiveModelId,
+} from "../../src/inference/index.js";
 
 (globalThis as typeof globalThis & { Buffer: typeof Buffer }).Buffer = Buffer;
 
@@ -31,6 +45,8 @@ let canvasEditor: PdfCanvasEditor | null = null;
 let imageColorMode = false;
 let modelOpen = false;
 let processing = false;
+let ggufDownloading = false;
+let llmProvider: GgufInferenceProvider | null = null;
 
 const fileInput = document.getElementById("file-input") as HTMLInputElement;
 const fileSelect = document.getElementById("file-select") as HTMLSelectElement;
@@ -48,6 +64,10 @@ const markdownOut = document.getElementById("markdown-out")!;
 const dlMdBtn = document.getElementById("dl-md") as HTMLButtonElement;
 const dlPkcBtn = document.getElementById("dl-pkc") as HTMLButtonElement;
 const dlJsonBtn = document.getElementById("dl-json") as HTMLButtonElement;
+const ggufModelSelect = document.getElementById("gguf-model-select") as HTMLSelectElement;
+const ggufDownloadBtn = document.getElementById("gguf-download-btn") as HTMLButtonElement;
+const ggufSetActiveBtn = document.getElementById("gguf-set-active-btn") as HTMLButtonElement;
+const ggufModelStatus = document.getElementById("gguf-model-status")!;
 
 function extname(filename: string): string {
   const dot = filename.lastIndexOf(".");
@@ -227,6 +247,9 @@ function mountPdfEditor(bytes: Uint8Array, doc: PdfDocumentBlocks, title: string
     pdfBytes: bytes,
     doc,
     imageColorMode,
+    llmProvider,
+    getAssistModelId: () => getActiveModelId() || LFM2_CHAT_MODEL_ID,
+    onAssistProgress: (msg) => setStatus(msg),
     onChange: (updated, markdown) => {
       applyResult(markdown, updated.title ?? title, updated);
       setStatus(`Blocks updated · ${markdown.length.toLocaleString()} chars`, "ok");
@@ -234,6 +257,85 @@ function mountPdfEditor(bytes: Uint8Array, doc: PdfDocumentBlocks, title: string
   });
 
   applyResult(blocksToMarkdown(doc), doc.title ?? title, doc);
+}
+
+async function tryCreateLlmProvider(): Promise<GgufInferenceProvider | null> {
+  try {
+    const { CapacitorGgufProvider } = await import("../../src/inference/capacitor-provider.js");
+    return await CapacitorGgufProvider.create();
+  } catch (err) {
+    console.warn("[manual-convert] CapacitorGgufProvider unavailable", err);
+    return null;
+  }
+}
+
+async function refreshGgufModelSelect(): Promise<void> {
+  const models = await listModelsWithStatus();
+  const active = getActiveModelId();
+  const prev = ggufModelSelect.value || active;
+  ggufModelSelect.innerHTML = "";
+
+  for (const m of models) {
+    const opt = document.createElement("option");
+    opt.value = m.id;
+    const chat = isChatCapableModel(m.id) ? "chat" : "embed";
+    const state = m.status === "downloaded" ? "downloaded" : "not downloaded";
+    opt.textContent = `${m.name} · ${m.sizeMB} MB · ${chat} · ${state}`;
+    ggufModelSelect.append(opt);
+  }
+
+  if (models.some((m) => m.id === prev)) ggufModelSelect.value = prev;
+  else if (models.some((m) => m.id === active)) ggufModelSelect.value = active;
+  else if (models[0]) ggufModelSelect.value = models[0].id;
+
+  updateGgufModelStatus();
+}
+
+function updateGgufModelStatus(): void {
+  const id = ggufModelSelect.value || getActiveModelId();
+  const active = getActiveModelId();
+  const providerNote = llmProvider
+    ? "LLM provider ready"
+    : "No LLM provider (download still works; AI fix needs llama-cpp-capacitor)";
+  ggufModelStatus.textContent = `Selected: ${id} · Active: ${active} · ${providerNote}`;
+  ggufDownloadBtn.disabled = ggufDownloading || !id;
+  ggufSetActiveBtn.disabled = !id;
+}
+
+async function handleGgufDownload(): Promise<void> {
+  const modelId = ggufModelSelect.value;
+  if (!modelId || ggufDownloading) return;
+
+  ggufDownloading = true;
+  updateGgufModelStatus();
+  setStatus(`Downloading ${modelId}…`);
+
+  try {
+    const info = await download_model(modelId, {
+      onProgress: (p) => {
+        setStatus(`Downloading ${modelId}… ${p.percentage}%`);
+        ggufModelStatus.textContent = `Downloading ${modelId}: ${p.percentage}% (${p.loaded.toLocaleString()} / ${p.total.toLocaleString()} bytes)`;
+      },
+    });
+    setActiveModelId(modelId);
+    await refreshGgufModelSelect();
+    setStatus(`Downloaded ${modelId} (${info.sizeBytes.toLocaleString()} bytes)`, "ok");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    setStatus(`Download failed: ${message}`, "err");
+    ggufModelStatus.textContent = message;
+  } finally {
+    ggufDownloading = false;
+    updateGgufModelStatus();
+  }
+}
+
+function handleSetActiveModel(): void {
+  const modelId = ggufModelSelect.value;
+  if (!modelId) return;
+  setActiveModelId(modelId);
+  updateGgufModelStatus();
+  setStatus(`Active model: ${modelId}`, "ok");
 }
 
 async function runProcess(): Promise<void> {
@@ -301,12 +403,17 @@ fileSelect.addEventListener("change", () => {
 modelBtn.addEventListener("click", () => {
   modelOpen = !modelOpen;
   updateModelUi();
+  if (modelOpen) void refreshGgufModelSelect();
 });
 
 modelClose.addEventListener("click", () => {
   modelOpen = false;
   updateModelUi();
 });
+
+ggufDownloadBtn.addEventListener("click", () => void handleGgufDownload());
+ggufSetActiveBtn.addEventListener("click", () => handleSetActiveModel());
+ggufModelSelect.addEventListener("change", () => updateGgufModelStatus());
 
 dropZone.addEventListener("click", () => fileInput.click());
 
@@ -363,4 +470,14 @@ refreshFileSelect();
 updateColorToggleUi();
 updateModelUi();
 updateDownloadButtons();
+void (async () => {
+  llmProvider = await tryCreateLlmProvider();
+  await refreshGgufModelSelect();
+  canvasEditor?.setLlmProvider(llmProvider);
+  setStatus(
+    llmProvider
+      ? "Add a file to begin · LLM provider ready for AI fix"
+      : "Add a file to begin · download models anytime; AI fix needs llama-cpp-capacitor",
+  );
+})();
 setStatus("Add a file to begin");
