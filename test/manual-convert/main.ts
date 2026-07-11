@@ -17,8 +17,13 @@ import {
   isChatCapableModel,
   listModelsWithStatus,
   LFM2_CHAT_MODEL_ID,
+  DEFAULT_OFFLINE_MODEL_ID,
   setActiveModelId,
 } from "../../src/inference/index.js";
+import {
+  generateStudyPkc,
+  type PkcStudyDocument,
+} from "../../src/pkc/index.js";
 
 (globalThis as typeof globalThis & { Buffer: typeof Buffer }).Buffer = Buffer;
 
@@ -41,10 +46,13 @@ let activeFileId: string | null = null;
 let selectedBytes: Uint8Array | null = null;
 let lastResult: ConversionResult | null = null;
 let lastPkc: Uint8Array | null = null;
+let lastStudyPkc: Uint8Array | null = null;
+let lastStudyDoc: PkcStudyDocument | null = null;
 let canvasEditor: PdfCanvasEditor | null = null;
 let imageColorMode = false;
 let modelOpen = false;
 let processing = false;
+let generatingStudyPkc = false;
 let ggufDownloading = false;
 let llmProvider: GgufInferenceProvider | null = null;
 
@@ -64,6 +72,10 @@ const markdownOut = document.getElementById("markdown-out")!;
 const dlMdBtn = document.getElementById("dl-md") as HTMLButtonElement;
 const dlPkcBtn = document.getElementById("dl-pkc") as HTMLButtonElement;
 const dlJsonBtn = document.getElementById("dl-json") as HTMLButtonElement;
+const dlStudyPkcBtn = document.getElementById("dl-study-pkc") as HTMLButtonElement;
+const generateStudyPkcBtn = document.getElementById("generate-study-pkc-btn") as HTMLButtonElement;
+const studyPkcStatus = document.getElementById("study-pkc-status")!;
+const studyPkcSummary = document.getElementById("study-pkc-summary") as HTMLPreElement;
 const ggufModelSelect = document.getElementById("gguf-model-select") as HTMLSelectElement;
 const ggufDownloadBtn = document.getElementById("gguf-download-btn") as HTMLButtonElement;
 const ggufSetActiveBtn = document.getElementById("gguf-set-active-btn") as HTMLButtonElement;
@@ -113,6 +125,8 @@ function updateDownloadButtons(): void {
   dlJsonBtn.disabled = !hasResult || !lastResult?.pdfBlocks;
   dlJsonBtn.hidden = !lastResult?.pdfBlocks;
   dlPkcBtn.disabled = !lastPkc;
+  dlStudyPkcBtn.disabled = !lastStudyPkc;
+  generateStudyPkcBtn.disabled = !lastResult?.pdfBlocks || generatingStudyPkc;
 }
 
 function refreshFileSelect(): void {
@@ -163,8 +177,14 @@ function resetOutput(): void {
   destroyEditor();
   lastResult = null;
   lastPkc = null;
+  lastStudyPkc = null;
+  lastStudyDoc = null;
   selectedBytes = null;
   previewEl.hidden = true;
+  studyPkcSummary.hidden = true;
+  studyPkcSummary.textContent = "";
+  studyPkcStatus.hidden = true;
+  studyPkcStatus.textContent = "";
   updateDownloadButtons();
 }
 
@@ -228,10 +248,73 @@ function applyResult(markdown: string, title: string | null | undefined, pdfBloc
   lastPkc = pkcToggle.checked
     ? packToPkcBrowser(markdown, { title, source: file.name })
     : null;
+  lastStudyPkc = null;
+  lastStudyDoc = null;
+  studyPkcSummary.hidden = true;
+  studyPkcSummary.textContent = "";
+  studyPkcStatus.hidden = true;
+  studyPkcStatus.textContent = "";
 
   markdownOut.textContent = markdown;
   previewEl.hidden = false;
   updateDownloadButtons();
+}
+
+async function handleGenerateStudyPkc(): Promise<void> {
+  const doc = canvasEditor?.getDocument() ?? lastResult?.pdfBlocks;
+  if (!doc || !lastResult || generatingStudyPkc) return;
+
+  generatingStudyPkc = true;
+  updateDownloadButtons();
+  studyPkcStatus.hidden = false;
+  studyPkcStatus.textContent = "Generating study PKC…";
+  studyPkcSummary.hidden = true;
+
+  try {
+    const result = await generateStudyPkc(doc, {
+      title: lastResult.title,
+      source: activeFile()?.name ?? lastResult.baseName,
+      llmProvider,
+      chatModelId: getActiveModelId() ?? LFM2_CHAT_MODEL_ID,
+      embeddingModelId: DEFAULT_OFFLINE_MODEL_ID,
+      onProgress: (msg) => {
+        studyPkcStatus.hidden = false;
+        studyPkcStatus.textContent = msg;
+      },
+    });
+
+    lastStudyPkc = result.pkc;
+    lastStudyDoc = result.document;
+    const { stats, models, warnings } = result.document;
+    const lines = [
+      `blocks: ${stats.blockCount}`,
+      `chunks: ${stats.chunkCount} (embedded: ${stats.embeddedChunkCount})`,
+      `flashcards: ${stats.flashCardCount}`,
+      `mcqs: ${stats.mcqCount}`,
+      `models: embedding=${models.embedding ?? "—"} chat=${models.chat ?? "—"}`,
+    ];
+    if (warnings?.length) {
+      lines.push("", "warnings:", ...warnings.map((w) => `· ${w}`));
+    }
+    studyPkcSummary.textContent = lines.join("\n");
+    studyPkcSummary.hidden = false;
+    studyPkcStatus.textContent = result.warnings.length
+      ? `Study PKC ready with ${result.warnings.length} warning(s)`
+      : "Study PKC ready";
+    setStatus(
+      `Study PKC · ${stats.flashCardCount} flash · ${stats.mcqCount} MCQ · ${stats.embeddedChunkCount}/${stats.chunkCount} embedded`,
+      "ok",
+    );
+  } catch (err) {
+    lastStudyPkc = null;
+    lastStudyDoc = null;
+    studyPkcSummary.hidden = true;
+    studyPkcStatus.textContent = `Failed: ${err instanceof Error ? err.message : String(err)}`;
+    setStatus(`Study PKC failed: ${err instanceof Error ? err.message : String(err)}`, "err");
+  } finally {
+    generatingStudyPkc = false;
+    updateDownloadButtons();
+  }
 }
 
 function mountPdfEditor(bytes: Uint8Array, doc: PdfDocumentBlocks, title: string | null | undefined): void {
@@ -443,6 +526,14 @@ dlPkcBtn.addEventListener("click", () => {
   downloadBlob(new Blob([lastPkc], { type: "application/octet-stream" }), `${lastResult.baseName}.pkc`);
 });
 
+dlStudyPkcBtn.addEventListener("click", () => {
+  if (!lastStudyPkc || !lastResult) return;
+  downloadBlob(
+    new Blob([lastStudyPkc], { type: "application/octet-stream" }),
+    `${lastResult.baseName}.study.pkc`,
+  );
+});
+
 dlJsonBtn.addEventListener("click", () => {
   const blocks = canvasEditor?.getDocument() ?? lastResult?.pdfBlocks;
   if (!blocks || !lastResult) return;
@@ -451,6 +542,8 @@ dlJsonBtn.addEventListener("click", () => {
     `${lastResult.baseName}.blocks.json`,
   );
 });
+
+generateStudyPkcBtn.addEventListener("click", () => void handleGenerateStudyPkc());
 
 pkcToggle.addEventListener("change", () => {
   if (lastResult) {

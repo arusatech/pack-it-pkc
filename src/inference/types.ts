@@ -24,10 +24,13 @@ export interface CompletionOptions {
 export interface GgufInferenceProvider {
   readonly platform: "capacitor" | "node";
 
-  loadModel(options: { modelPath: string; contextId?: number }): Promise<void>;
+  loadModel(options: { modelPath: string; contextId?: number; embedding?: boolean }): Promise<void>;
   unloadModel?(contextId?: number): Promise<void>;
 
   complete(messages: ChatMessage[], options?: CompletionOptions): Promise<string>;
+
+  /** Dense embedding for the currently loaded embedding model (e.g. BGE). */
+  embedText?(text: string): Promise<number[]>;
 
   /** Multimodal: describe an image using a vision GGUF model */
   describeImage?(request: VisionRequest): Promise<string | null>;

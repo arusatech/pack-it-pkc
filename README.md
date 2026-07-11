@@ -6,7 +6,7 @@ JavaScript/TypeScript port of [Microsoft MarkItDown](ref-code/markitdown) with:
 
 - **No ONNX** — format detection uses magic bytes + `file-type` (replaces Magika/onnxruntime)
 - **GGUF inference** — vision/OCR via llama.cpp adapters (replaces cloud LLM for on-device use)
-- **Multi-platform** — Node, Capacitor mobile/PWA, Electron desktop
+- **Multi-platform** — installable library for Node, Capacitor mobile/PWA, and Electron desktop apps
 
 ## Architecture
 
@@ -15,12 +15,14 @@ src/
   detect/       # Format detection (magic bytes, MIME/extension inference)
   convert/      # MarkItDown orchestrator + format converters
   inference/    # GGUF providers (Capacitor + Node/Electron)
-  pkc/          # PKC binary container (gzip JSON payload)
+  pdf/          # PDF block extraction + canvas editor helpers
+  pkc/          # PKC binary container (markdown + study v2)
   types/        # StreamInfo, DocumentConverter, exceptions
   utils/        # ByteStream, URI parsing, normalization
 
-apps/
-  electron/     # Desktop app with optional node-llama-cpp GGUF models
+test/
+  mark-it-down.test.ts
+  manual-convert/   # Local Vite harness (not a product UI)
 
 ref-code/
   markitdown/   # Original Python reference (gitignored)
@@ -40,7 +42,7 @@ Python MarkItDown uses Magika, which runs a small ONNX model. This port uses:
 | Platform | Package | Use case |
 |----------|---------|----------|
 | Mobile / PWA | [`llama-cpp-capacitor`](https://www.npmjs.com/package/llama-cpp-capacitor) | Offline multimodal GGUF on iOS, Android, WASM |
-| Desktop / Node | [`node-llama-cpp`](https://www.npmjs.com/package/node-llama-cpp) | Electron app, server-side conversion |
+| Desktop / Node | [`node-llama-cpp`](https://www.npmjs.com/package/node-llama-cpp) | Host Electron/desktop app or server-side conversion |
 
 ```typescript
 import { MarkItDown } from "@annadata/pack-it-pkc";
@@ -103,16 +105,21 @@ npm test
 # Mobile / Capacitor / PWA
 npm install llama-cpp-capacitor
 
-# Desktop / Electron
+# Desktop / Electron host app
 npm install node-llama-cpp
 ```
 
-### Electron desktop
+Use this package from your desktop app:
 
 ```bash
-npm run build
-npm --prefix apps/electron install
-npm run electron:dev
+npm install @annadata/pack-it-pkc
+# local link while developing:
+# npm install ../pack-it-pkc
+```
+
+```typescript
+import { MarkItDown, generateStudyPkc } from "@annadata/pack-it-pkc";
+import { NodeGgufProvider } from "@annadata/pack-it-pkc/inference/node";
 ```
 
 ## Scripts
@@ -122,7 +129,7 @@ npm run electron:dev
 | `npm run build` | Build `dist/` |
 | `npm run dev` | Watch mode |
 | `npm test` | Vitest |
-| `npm run electron:dev` | Desktop app |
+| `npm run test:manual` | Local convert / PDF / study PKC harness |
 
 ## License
 

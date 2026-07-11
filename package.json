@@ -29,8 +29,7 @@
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:manual": "vite --config test/manual-convert/vite.config.ts",
-    "electron:dev": "npm run build && npm --prefix apps/electron run start"
+    "test:manual": "vite --config test/manual-convert/vite.config.ts"
   },
   "keywords": [
     "markdown",

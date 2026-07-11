@@ -305,6 +305,28 @@ body {
   color: var(--muted);
 }
 
+.preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.preview-head .section-title {
+  margin: 0;
+}
+
+.preview-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.study-pkc-summary {
+  margin-top: 0.5rem;
+}
+
 .preview pre,
 pre#markdown-out {
   margin: 0;

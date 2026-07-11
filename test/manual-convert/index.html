@@ -74,6 +74,7 @@
               <button type="button" id="dl-md" class="btn-chip" disabled>Markdown</button>
               <button type="button" id="dl-json" class="btn-chip" disabled hidden>Blocks JSON</button>
               <button type="button" id="dl-pkc" class="btn-chip" disabled>PKC</button>
+              <button type="button" id="dl-study-pkc" class="btn-chip" disabled>Study PKC</button>
             </div>
             <p class="storage-hint">PDF blocks → <code>localStorage</code> · <code>pack-it-pkc:pdf-blocks:&lt;file&gt;</code></p>
           </div>
@@ -84,8 +85,15 @@
         <section class="pdf-editor" id="pdf-editor" hidden></section>
 
         <section class="preview" id="preview" hidden>
-          <h2 class="section-title">Markdown preview</h2>
+          <div class="preview-head">
+            <h2 class="section-title">Markdown preview</h2>
+            <button type="button" id="generate-study-pkc-btn" class="btn-chip" disabled>
+              Generate PKC
+            </button>
+          </div>
+          <p class="preview-hint" id="study-pkc-status" hidden></p>
           <pre id="markdown-out"></pre>
+          <pre id="study-pkc-summary" class="study-pkc-summary" hidden></pre>
         </section>
       </main>
     </div>

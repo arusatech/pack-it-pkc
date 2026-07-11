@@ -41,6 +41,7 @@ export {
   getLoadedModelId,
   clearLoadedModelId,
   ensureModelReady,
+  ensureEmbeddingModelReady,
   listModelsWithStatus,
   type EnsureModelReadyOptions,
 } from "./model-session.js";

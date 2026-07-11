@@ -10,6 +10,7 @@ import {
 import {
   isChatCapableModel,
   LFM2_CHAT_MODEL_ID,
+  DEFAULT_OFFLINE_MODEL_ID,
   type ModelCatalogEntry,
   createModelCatalog,
 } from "./model-catalog.js";
@@ -97,6 +98,37 @@ export async function ensureModelReady(
   loadedModelId = modelId;
   setActiveModelId(modelId);
   options.onStatus?.(`Model ${modelId} ready`);
+  return { modelId, path };
+}
+
+/**
+ * Download/load the embedding catalog model (BGE) for `provider.embedText`.
+ * Clears the chat "loaded" marker so a later ensureModelReady reloads chat.
+ */
+export async function ensureEmbeddingModelReady(
+  provider: GgufInferenceProvider,
+  modelId: string = DEFAULT_OFFLINE_MODEL_ID,
+  options: EnsureModelReadyOptions = {},
+): Promise<{ modelId: string; path: string }> {
+  if (isChatCapableModel(modelId)) {
+    throw new Error(`Model '${modelId}' is chat-capable; use an embedding model (e.g. ${DEFAULT_OFFLINE_MODEL_ID}).`);
+  }
+  if (typeof provider.embedText !== "function") {
+    throw new Error("Provider does not implement embedText().");
+  }
+
+  options.onStatus?.(`Checking embedding model ${modelId}…`);
+  let path = await getModelLocalPath(modelId);
+  if (!path) {
+    options.onStatus?.(`Downloading ${modelId}…`);
+    const info = await downloadModel(modelId, { onProgress: options.onProgress });
+    path = info.path;
+  }
+
+  options.onStatus?.(`Loading embedding model ${modelId}…`);
+  await provider.loadModel({ modelPath: path, embedding: true } as { modelPath: string });
+  loadedModelId = null; // chat must be reloaded after embed phase
+  options.onStatus?.(`Embedding model ${modelId} ready`);
   return { modelId, path };
 }
 
