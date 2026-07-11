@@ -90,8 +90,10 @@ Shipped under `dist/assets` as part of the plugin:
 | `assets/manifest` | Path helpers (`KATEX_ASSETS`, `LANGUAGE_FONT_IDS`) |
 
 ```typescript
-import { KATEX_ASSETS, languageFontPath } from "@annadata/pack-it-pkc/assets/manifest";
-// or from main: import { KATEX_ASSETS, languageFontPath } from "@annadata/pack-it-pkc";
+import { KATEX_ASSETS, languageFontPath, LANGUAGE_FONTS_CSS } from "@annadata/pack-it-pkc/assets/manifest";
+// Values are package imports, e.g. "@annadata/pack-it-pkc/assets/katex/katex.css"
+import(KATEX_ASSETS.css);
+import(LANGUAGE_FONTS_CSS);
 ```
 
 ### Models

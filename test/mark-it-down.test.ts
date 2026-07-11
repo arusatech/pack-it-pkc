@@ -108,6 +108,32 @@ describe("Study PKC", () => {
   });
 });
 
+describe("asset manifest paths", () => {
+  it("uses package-scoped import specifiers", async () => {
+    const {
+      PACKAGE_NAME,
+      ASSET_ROOT,
+      KATEX_ASSETS,
+      LANGUAGE_FONTS_CSS,
+      languageFontPath,
+      katexFontGlob,
+    } = await import("../src/assets/manifest.js");
+
+    expect(PACKAGE_NAME).toBe("@annadata/pack-it-pkc");
+    expect(ASSET_ROOT).toBe("@annadata/pack-it-pkc/assets");
+    expect(KATEX_ASSETS.css).toBe("@annadata/pack-it-pkc/assets/katex/katex.css");
+    expect(KATEX_ASSETS.mhchem).toBe("@annadata/pack-it-pkc/assets/katex/mhchem.js");
+    expect(LANGUAGE_FONTS_CSS).toBe("@annadata/pack-it-pkc/assets/fonts/languages.css");
+    expect(languageFontPath("hi")).toBe("@annadata/pack-it-pkc/assets/fonts/hi.ttf");
+    expect(katexFontGlob()).toBe("@annadata/pack-it-pkc/assets/fonts/KaTeX_*");
+
+    for (const path of Object.values(KATEX_ASSETS)) {
+      expect(path.startsWith("@annadata/pack-it-pkc/assets/")).toBe(true);
+      expect(path.startsWith("assets/")).toBe(false);
+    }
+  });
+});
+
 describe("format detector", () => {
   it("guesses from stream", async () => {
     const { guessStreamFormats } = await import("../src/detect/format-detector.js");

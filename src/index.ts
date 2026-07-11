@@ -1,7 +1,9 @@
 export {
   ASSET_ROOT,
+  PACKAGE_NAME,
   KATEX_ASSETS,
   LANGUAGE_FONT_IDS,
+  LANGUAGE_FONTS_CSS,
   languageFontPath,
   katexFontGlob,
   type LanguageFontId,

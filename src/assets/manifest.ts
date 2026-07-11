@@ -1,19 +1,28 @@
 /**
  * Bundled plugin assets: KaTeX (formulas) + language fonts (future i18n).
- * Hosts can import files via `@annadata/pack-it-pkc/assets/...`.
+ *
+ * Paths are package import specifiers that resolve via package.json `exports`
+ * (`"./assets/*" → "./dist/assets/*"`). Use them with bundler imports, dynamic
+ * `import()`, or URL resolution — not as bare filesystem-relative paths.
  */
 
-/** Relative paths under the package `assets/` folder (also mirrored in `dist/assets`). */
-export const ASSET_ROOT = "assets" as const;
+export const PACKAGE_NAME = "@annadata/pack-it-pkc" as const;
+
+/** Package-scoped root for static assets (`@annadata/pack-it-pkc/assets`). */
+export const ASSET_ROOT = `${PACKAGE_NAME}/assets` as const;
+
+function assetPath(relative: string): `${typeof PACKAGE_NAME}/assets/${string}` {
+  return `${PACKAGE_NAME}/assets/${relative}`;
+}
 
 export const KATEX_ASSETS = {
-  css: "assets/katex/katex.css",
-  js: "assets/katex/katex.js",
-  autoRender: "assets/katex/auto-render.js",
-  mhchem: "assets/katex/mhchem.js",
-  copyTex: "assets/katex/copy-tex.js",
-  mathtexScriptType: "assets/katex/mathtex-script-type.js",
-  renderA11yString: "assets/katex/render-a11y-string.js",
+  css: assetPath("katex/katex.css"),
+  js: assetPath("katex/katex.js"),
+  autoRender: assetPath("katex/auto-render.js"),
+  mhchem: assetPath("katex/mhchem.js"),
+  copyTex: assetPath("katex/copy-tex.js"),
+  mathtexScriptType: assetPath("katex/mathtex-script-type.js"),
+  renderA11yString: assetPath("katex/render-a11y-string.js"),
 } as const;
 
 /** Indic / regional UI fonts shipped for future multi-language support. */
@@ -39,11 +48,18 @@ export const LANGUAGE_FONT_IDS = [
 
 export type LanguageFontId = (typeof LANGUAGE_FONT_IDS)[number];
 
+/** Package import path for a language font, e.g. `@annadata/pack-it-pkc/assets/fonts/hi.ttf`. */
 export function languageFontPath(id: LanguageFontId): string {
-  return `assets/fonts/${id}.ttf`;
+  return assetPath(`fonts/${id}.ttf`);
 }
 
-/** KaTeX math fonts live alongside language fonts under assets/fonts/KaTeX_*. */
+/** Package import path for language `@font-face` CSS. */
+export const LANGUAGE_FONTS_CSS = assetPath("fonts/languages.css");
+
+/**
+ * Glob-style hint for KaTeX math fonts under the package assets tree.
+ * Prefer concrete URLs from your bundler; this is not a filesystem glob.
+ */
 export function katexFontGlob(): string {
-  return "assets/fonts/KaTeX_*";
+  return `${ASSET_ROOT}/fonts/KaTeX_*`;
 }
