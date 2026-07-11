@@ -1,9 +1,9 @@
 /**
  * Bundled plugin assets: KaTeX (formulas) + language fonts (future i18n).
  *
- * Paths are package import specifiers that resolve via package.json `exports`
- * (`"./assets/*" → "./dist/assets/*"`). Use them with bundler imports, dynamic
- * `import()`, or URL resolution — not as bare filesystem-relative paths.
+ * Static files live at repo-root `assets/` (ASSET_ROOT) and are copied to
+ * `dist/assets/` on build. Paths below are package import specifiers that
+ * resolve via package.json `exports` (`"./assets/*" → "./dist/assets/*"`).
  */
 
 export const PACKAGE_NAME = "@annadata/pack-it-pkc" as const;

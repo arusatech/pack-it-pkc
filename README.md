@@ -79,7 +79,7 @@ const editor = new PdfCanvasEditor({
 
 ### Bundled assets (formulas + languages)
 
-Shipped under `dist/assets` as part of the plugin:
+Static files live at repo-root **`assets/`** and are copied to `dist/assets` on build:
 
 | Path | Contents |
 |------|----------|
@@ -116,8 +116,9 @@ await ensureEmbeddingModelReady(llm, DEFAULT_OFFLINE_MODEL_ID);
 ## Architecture
 
 ```
+assets/         # Static KaTeX + language fonts (ASSET_ROOT; copied to dist/assets)
 src/
-  assets/       # Shipped KaTeX + language fonts (plugin assets)
+  assets/       # Path helpers (manifest.ts) for package imports
   detect/       # Magic-byte format detection (no ONNX)
   convert/      # MarkItDown + format converters
   inference/    # Catalog, download, session, CapacitorGgufProvider

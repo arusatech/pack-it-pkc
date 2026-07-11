@@ -1,6 +1,6 @@
 import { Buffer } from "buffer";
 import { gzipSync } from "fflate";
-import "../../src/assets/katex/katex.css";
+import "../../assets/katex/katex.css";
 import { MarkItDown } from "../../src/convert/mark-it-down.js";
 import {
   extractPdfBlocks,
