@@ -1,0 +1,23 @@
+/**
+ * Optional @font-face helpers for bundled language fonts.
+ * Import from the host when enabling multi-language UI:
+ *   import "@annadata/pack-it-pkc/assets/fonts/languages.css";
+ */
+
+@font-face { font-family: "PackItLang-ar"; src: url(./ar.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-as"; src: url(./as.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-bn"; src: url(./bn.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-en"; src: url(./en.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-gu"; src: url(./gu.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-hi"; src: url(./hi.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-kn"; src: url(./kn.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-ml"; src: url(./ml.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-mni"; src: url(./mni.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-mr"; src: url(./mr.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-ne"; src: url(./ne.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-ns"; src: url(./ns.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-or"; src: url(./or.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-pa"; src: url(./pa.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-si"; src: url(./si.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-ta"; src: url(./ta.ttf) format("truetype"); font-display: swap; }
+@font-face { font-family: "PackItLang-te"; src: url(./te.ttf) format("truetype"); font-display: swap; }

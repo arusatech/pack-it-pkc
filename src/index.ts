@@ -1,3 +1,12 @@
+export {
+  ASSET_ROOT,
+  KATEX_ASSETS,
+  LANGUAGE_FONT_IDS,
+  languageFontPath,
+  katexFontGlob,
+  type LanguageFontId,
+} from "./assets/manifest.js";
+
 export { MarkItDown, type MarkItDownOptions } from "./convert/index.js";
 export * from "./convert/converters/index.js";
 export * from "./detect/index.js";

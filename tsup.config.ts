@@ -26,6 +26,7 @@ export default defineConfig({
     index: "src/index.ts",
     "inference/capacitor-provider": "src/inference/capacitor-provider.ts",
     "pdf/editor": "src/pdf/editor.ts",
+    "assets/manifest": "src/assets/manifest.ts",
   },
   format: ["esm", "cjs"],
   dts: {

@@ -22,7 +22,13 @@
       "import": "./dist/pdf/editor.js",
       "require": "./dist/pdf/editor.cjs"
     },
-    "./pdf/editor.css": "./dist/pdf/pdf-canvas-editor.css"
+    "./pdf/editor.css": "./dist/pdf/pdf-canvas-editor.css",
+    "./assets/manifest": {
+      "types": "./dist/assets/manifest.d.ts",
+      "import": "./dist/assets/manifest.js",
+      "require": "./dist/assets/manifest.cjs"
+    },
+    "./assets/*": "./dist/assets/*"
   },
   "files": [
     "dist",
@@ -32,7 +38,7 @@
     "**/*.css"
   ],
   "scripts": {
-    "build": "tsup && mkdir -p dist/pdf && cp src/pdf/pdf-canvas-editor.css dist/pdf/pdf-canvas-editor.css",
+    "build": "tsup && node scripts/copy-plugin-assets.mjs",
     "prepublishOnly": "npm run build && npm test",
     "dev": "tsup --watch",
     "test": "vitest run",

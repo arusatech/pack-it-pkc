@@ -62,7 +62,10 @@ const { document, pkc, warnings } = await generateStudyPkc(pdfBlocks, {
 ```typescript
 import { PdfCanvasEditor } from "@annadata/pack-it-pkc/pdf/editor";
 import "@annadata/pack-it-pkc/pdf/editor.css";
-import "katex/dist/katex.min.css"; // formula/math preview
+// Bundled KaTeX CSS + fonts (formulas) — preferred for offline / Capacitor hosts
+import "@annadata/pack-it-pkc/assets/katex/katex.css";
+// Optional: language fonts for future i18n UI
+// import "@annadata/pack-it-pkc/assets/fonts/languages.css";
 
 const editor = new PdfCanvasEditor({
   container,
@@ -72,6 +75,23 @@ const editor = new PdfCanvasEditor({
   llmProvider: llm,
   onChange: (doc) => { /* persist */ },
 });
+```
+
+### Bundled assets (formulas + languages)
+
+Shipped under `dist/assets` as part of the plugin:
+
+| Path | Contents |
+|------|----------|
+| `assets/katex/` | KaTeX CSS/JS + mhchem helpers |
+| `assets/fonts/KaTeX_*` | Math fonts referenced by `katex.css` |
+| `assets/fonts/{ar,hi,bn,…}.ttf` | Language fonts for future i18n |
+| `assets/fonts/languages.css` | `@font-face` helpers |
+| `assets/manifest` | Path helpers (`KATEX_ASSETS`, `LANGUAGE_FONT_IDS`) |
+
+```typescript
+import { KATEX_ASSETS, languageFontPath } from "@annadata/pack-it-pkc/assets/manifest";
+// or from main: import { KATEX_ASSETS, languageFontPath } from "@annadata/pack-it-pkc";
 ```
 
 ### Models
@@ -95,6 +115,7 @@ await ensureEmbeddingModelReady(llm, DEFAULT_OFFLINE_MODEL_ID);
 
 ```
 src/
+  assets/       # Shipped KaTeX + language fonts (plugin assets)
   detect/       # Magic-byte format detection (no ONNX)
   convert/      # MarkItDown + format converters
   inference/    # Catalog, download, session, CapacitorGgufProvider
