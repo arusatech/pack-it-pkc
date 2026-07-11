@@ -34,7 +34,7 @@ export class XlsxConverter implements DocumentConverter {
 
   async convert(stream: ByteStream): Promise<DocumentConverterResult> {
     const XLSX = await loadXlsx();
-    const workbook = XLSX.read(Buffer.from(stream.remaining()), { type: "buffer" });
+    const workbook = XLSX.read(stream.remaining(), { type: "array" });
     const sections: string[] = [];
 
     for (const name of workbook.SheetNames) {
@@ -56,7 +56,7 @@ export class XlsConverter implements DocumentConverter {
 
   async convert(stream: ByteStream): Promise<DocumentConverterResult> {
     const XLSX = await loadXlsx();
-    const workbook = XLSX.read(Buffer.from(stream.remaining()), { type: "buffer" });
+    const workbook = XLSX.read(stream.remaining(), { type: "array" });
     const sections: string[] = [];
 
     for (const name of workbook.SheetNames) {

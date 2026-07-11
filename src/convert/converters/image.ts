@@ -1,6 +1,7 @@
 import type { StreamInfo } from "../../types/stream-info.js";
 import type { ByteStream } from "../../utils/byte-stream.js";
 import type { ConverterContext, DocumentConverter, DocumentConverterResult } from "../../types/converter.js";
+import { toBase64 } from "../../utils/binary.js";
 
 const ACCEPTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
 const ACCEPTED_MIME_PREFIXES = ["image/"];
@@ -49,11 +50,4 @@ function guessImageMime(ext?: string | null): string | null {
     default:
       return null;
   }
-}
-
-function toBase64(bytes: Uint8Array): string {
-  if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64");
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary);
 }

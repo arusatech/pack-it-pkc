@@ -1,6 +1,6 @@
 /**
- * Download GGUF models to OPFS (browser) or ~/.cache/pack-it-pkc/models (Node).
- * No dependency on llama-cpp-capacitor.
+ * Download GGUF models to OPFS (PWA), Capacitor Filesystem (native), or ~/.cache/pack-it-pkc/models (Node).
+ * No hard dependency on llama-cpp-capacitor / @capacitor/filesystem.
  */
 
 import { getModelById, modelUrlForId } from "./model-catalog.js";
@@ -24,6 +24,16 @@ export type DownloadModelOptions = {
   onProgress?: (progress: DownloadProgress) => void;
   /** Override catalog URL if the app wants a custom GGUF. */
   url?: string;
+  /**
+   * Storage backend. `auto` picks OPFS (PWA/browser), Capacitor Filesystem (native),
+   * or Node cache. Hosts can force a backend or pass `targetPath` for a custom file.
+   */
+  storage?: "auto" | "opfs" | "capacitor" | "node";
+  /**
+   * Absolute native path (or Capacitor URI) for the GGUF file.
+   * When set, download writes here and returns this path for `loadModel`.
+   */
+  targetPath?: string;
 };
 
 const MODELS_DIR = "models";
@@ -46,6 +56,46 @@ function isBrowserOpfsAvailable(): boolean {
 
 function isNodeRuntime(): boolean {
   return typeof process !== "undefined" && !!process.versions?.node;
+}
+
+function isCapacitorNative(): boolean {
+  const cap = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+  return typeof cap?.isNativePlatform === "function" && cap.isNativePlatform();
+}
+
+type CapacitorFilesystem = {
+  Directory: { Data: string; [key: string]: string };
+  Encoding?: { UTF8: string };
+  writeFile: (opts: {
+    path: string;
+    data: string;
+    directory: string;
+    recursive?: boolean;
+  }) => Promise<{ uri?: string } | void>;
+  readFile: (opts: { path: string; directory: string; encoding?: string }) => Promise<{ data: string }>;
+  deleteFile: (opts: { path: string; directory: string }) => Promise<void>;
+  mkdir: (opts: { path: string; directory: string; recursive?: boolean }) => Promise<void>;
+  getUri: (opts: { path: string; directory: string }) => Promise<{ uri: string }>;
+};
+
+async function tryLoadCapacitorFilesystem(): Promise<CapacitorFilesystem | null> {
+  try {
+    const mod = "@capacitor/filesystem";
+    const fs = await import(/* @vite-ignore */ mod);
+    return (fs.Filesystem ?? fs.default ?? null) as CapacitorFilesystem | null;
+  } catch {
+    return null;
+  }
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64");
+  let s = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    s += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(s);
 }
 
 async function writeStreamToSink(
@@ -209,6 +259,137 @@ async function deleteFromOpfs(modelId: string): Promise<void> {
   await writeOpfsManifest(manifest);
 }
 
+// ── Capacitor Filesystem (native iOS / Android / desktop hosts) ──────────────
+
+async function capacitorManifestPath(): Promise<string> {
+  return `${MODELS_DIR}/${MANIFEST_NAME}`;
+}
+
+async function readCapacitorManifest(fs: CapacitorFilesystem): Promise<ManifestMap> {
+  try {
+    const result = await fs.readFile({
+      path: await capacitorManifestPath(),
+      directory: fs.Directory.Data,
+      encoding: fs.Encoding?.UTF8,
+    });
+    const text = typeof result.data === "string" ? result.data : "";
+    if (!text.trim()) return {};
+    return JSON.parse(text) as ManifestMap;
+  } catch {
+    return {};
+  }
+}
+
+async function writeCapacitorManifest(fs: CapacitorFilesystem, map: ManifestMap): Promise<void> {
+  await fs.mkdir({ path: MODELS_DIR, directory: fs.Directory.Data, recursive: true }).catch(() => undefined);
+  await fs.writeFile({
+    path: await capacitorManifestPath(),
+    data: JSON.stringify(map, null, 2),
+    directory: fs.Directory.Data,
+    recursive: true,
+  });
+}
+
+async function downloadToCapacitor(
+  modelId: string,
+  modelUrl: string,
+  onProgress?: (progress: DownloadProgress) => void,
+  targetPath?: string,
+): Promise<DownloadedModelInfo> {
+  const fs = await tryLoadCapacitorFilesystem();
+  if (!fs) {
+    throw new Error(
+      "Capacitor Filesystem unavailable. Install @capacitor/filesystem or pass options.targetPath from the host app.",
+    );
+  }
+
+  const manifest = await readCapacitorManifest(fs);
+  const existing = manifest[modelId];
+  if (existing && !targetPath) {
+    const updated = { ...existing, lastUsedAt: Date.now() };
+    manifest[modelId] = updated;
+    await writeCapacitorManifest(fs, manifest);
+    onProgress?.({
+      loaded: existing.sizeBytes,
+      total: existing.sizeBytes,
+      percentage: 100,
+    });
+    return updated;
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(modelUrl);
+  } catch (error) {
+    throw new Error(`Failed to download model '${modelId}': ${String(error)}`);
+  }
+  if (!res.ok) {
+    throw new Error(`Failed to download model '${modelId}': HTTP ${res.status}`);
+  }
+
+  const relativePath = targetPath ?? pathForModelId(modelId);
+  const chunks: Uint8Array[] = [];
+  const sizeBytes = await writeStreamToSink(
+    res,
+    async (chunk) => {
+      chunks.push(chunk.slice());
+    },
+    onProgress,
+  );
+  const merged = new Uint8Array(sizeBytes);
+  let offset = 0;
+  for (const c of chunks) {
+    merged.set(c, offset);
+    offset += c.byteLength;
+  }
+
+  await fs.mkdir({ path: MODELS_DIR, directory: fs.Directory.Data, recursive: true }).catch(() => undefined);
+  await fs.writeFile({
+    path: relativePath,
+    data: uint8ToBase64(merged),
+    directory: fs.Directory.Data,
+    recursive: true,
+  });
+
+  let uri = relativePath;
+  try {
+    const resolved = await fs.getUri({ path: relativePath, directory: fs.Directory.Data });
+    if (resolved?.uri) uri = resolved.uri;
+  } catch {
+    /* keep relative path */
+  }
+
+  const now = Date.now();
+  const entry: DownloadedModelInfo = {
+    modelId,
+    path: uri,
+    sizeBytes,
+    sourceUrl: modelUrl,
+    createdAt: now,
+    lastUsedAt: now,
+  };
+  if (!targetPath) {
+    manifest[modelId] = entry;
+    await writeCapacitorManifest(fs, manifest);
+  }
+  return entry;
+}
+
+async function deleteFromCapacitor(modelId: string): Promise<void> {
+  const fs = await tryLoadCapacitorFilesystem();
+  if (!fs) return;
+  const manifest = await readCapacitorManifest(fs);
+  const entry = manifest[modelId];
+  if (!entry) return;
+  try {
+    await fs.deleteFile({ path: pathForModelId(modelId), directory: fs.Directory.Data });
+  } catch {
+    /* ignore */
+  }
+  delete manifest[modelId];
+  await writeCapacitorManifest(fs, manifest);
+}
+
 // ── Node filesystem ─────────────────────────────────────────────────────────
 
 async function nodeCacheDir(): Promise<string> {
@@ -281,7 +462,7 @@ async function downloadToNode(
   let written = 0;
 
   if (!res.body) {
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = new Uint8Array(await res.arrayBuffer());
     await new Promise<void>((resolve, reject) => {
       fileStream.write(buf, (err) => (err ? reject(err) : resolve()));
     });
@@ -349,13 +530,32 @@ export async function downloadModel(
     );
   }
 
+  const storage = options.storage ?? "auto";
+  const preferOpfs = storage === "opfs" || (storage === "auto" && isBrowserOpfsAvailable() && !isCapacitorNative());
+  const preferCapacitor =
+    storage === "capacitor" ||
+    (storage === "auto" && isCapacitorNative()) ||
+    (storage === "auto" && !!options.targetPath && !isNodeRuntime() && !preferOpfs);
+  const preferNode = storage === "node" || (storage === "auto" && isNodeRuntime());
+
+  if (preferOpfs && isBrowserOpfsAvailable()) {
+    return downloadToOpfs(modelId, url, options.onProgress);
+  }
+  if (preferCapacitor || (storage === "auto" && !isNodeRuntime() && (await tryLoadCapacitorFilesystem()))) {
+    return downloadToCapacitor(modelId, url, options.onProgress, options.targetPath);
+  }
+  if (preferNode && isNodeRuntime()) {
+    return downloadToNode(modelId, url, options.onProgress);
+  }
   if (isBrowserOpfsAvailable()) {
     return downloadToOpfs(modelId, url, options.onProgress);
   }
   if (isNodeRuntime()) {
     return downloadToNode(modelId, url, options.onProgress);
   }
-  throw new Error("downloadModel requires a browser with OPFS or a Node.js runtime.");
+  throw new Error(
+    "downloadModel requires OPFS (PWA), @capacitor/filesystem (native), or Node.js. Pass options.storage / options.targetPath from the host app.",
+  );
 }
 
 /** Snake_case alias for apps that prefer download_model(). */
@@ -367,6 +567,10 @@ export async function isModelDownloaded(modelId: string): Promise<boolean> {
 }
 
 export async function listDownloadedModels(): Promise<DownloadedModelInfo[]> {
+  if (isCapacitorNative()) {
+    const fs = await tryLoadCapacitorFilesystem();
+    if (fs) return Object.values(await readCapacitorManifest(fs));
+  }
   if (isBrowserOpfsAvailable()) {
     return Object.values(await readOpfsManifest());
   }
@@ -377,6 +581,13 @@ export async function listDownloadedModels(): Promise<DownloadedModelInfo[]> {
 }
 
 export async function getModelLocalPath(modelId: string): Promise<string | null> {
+  if (isCapacitorNative()) {
+    const fs = await tryLoadCapacitorFilesystem();
+    if (fs) {
+      const entry = (await readCapacitorManifest(fs))[modelId];
+      if (entry?.path) return entry.path;
+    }
+  }
   if (isBrowserOpfsAvailable()) {
     const entry = (await readOpfsManifest())[modelId];
     return entry?.path ?? null;
@@ -389,6 +600,10 @@ export async function getModelLocalPath(modelId: string): Promise<string | null>
 }
 
 export async function deleteModel(modelId: string): Promise<void> {
+  if (isCapacitorNative()) {
+    await deleteFromCapacitor(modelId);
+    return;
+  }
   if (isBrowserOpfsAvailable()) {
     await deleteFromOpfs(modelId);
     return;

@@ -1,7 +1,7 @@
 {
   "name": "@annadata/pack-it-pkc",
   "version": "1.0.0",
-  "description": "Convert documents to Markdown and pack into PKC format (MarkItDown JS port with GGUF inference)",
+  "description": "Convert documents to Markdown and pack into PKC format (MarkItDown JS port with GGUF via llama-cpp-capacitor)",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -14,18 +14,33 @@
     },
     "./inference/capacitor": {
       "types": "./dist/inference/capacitor-provider.d.ts",
-      "import": "./dist/inference/capacitor-provider.js"
-    }
+      "import": "./dist/inference/capacitor-provider.js",
+      "require": "./dist/inference/capacitor-provider.cjs"
+    },
+    "./pdf/editor": {
+      "types": "./dist/pdf/editor.d.ts",
+      "import": "./dist/pdf/editor.js",
+      "require": "./dist/pdf/editor.cjs"
+    },
+    "./pdf/editor.css": "./dist/pdf/pdf-canvas-editor.css"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": [
+    "**/*.css"
   ],
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
+    "build": "tsup && mkdir -p dist/pdf && cp src/pdf/pdf-canvas-editor.css dist/pdf/pdf-canvas-editor.css",
+    "prepublishOnly": "npm run build && npm test",
+    "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:manual": "vite --config test/manual-convert/vite.config.ts"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "keywords": [
     "markdown",
@@ -33,7 +48,10 @@
     "pkc",
     "gguf",
     "llama-cpp",
-    "markitdown"
+    "llama-cpp-capacitor",
+    "markitdown",
+    "capacitor",
+    "pwa"
   ],
   "author": "Mr. Yakub Mohammad <yakub@annadata.ai>",
   "license": "MIT",
@@ -56,9 +74,13 @@
     "@kenjiuno/msgreader": "^1.27.1"
   },
   "peerDependencies": {
+    "@capacitor/filesystem": ">=6.0.0",
     "llama-cpp-capacitor": ">=0.2.0"
   },
   "peerDependenciesMeta": {
+    "@capacitor/filesystem": {
+      "optional": true
+    },
     "llama-cpp-capacitor": {
       "optional": true
     }

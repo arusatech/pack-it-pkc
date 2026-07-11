@@ -20,7 +20,7 @@ export class CsvConverter implements DocumentConverter {
     if (info.charset) {
       content = new TextDecoder(info.charset).decode(bytes);
     } else {
-      const detected = chardet.detect(Buffer.from(bytes));
+      const detected = chardet.detect(bytes);
       content = new TextDecoder(typeof detected === "string" ? detected : "utf-8").decode(bytes);
     }
 

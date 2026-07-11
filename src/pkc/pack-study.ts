@@ -1,4 +1,5 @@
-import { gzipSync, gunzipSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "fflate";
+import { utf8Decode, utf8Encode } from "../utils/binary.js";
 import { PKC_MAGIC } from "./pack.js";
 import { PKC_STUDY_VERSION, type PkcStudyDocument } from "./study-types.js";
 
@@ -10,7 +11,7 @@ export function packStudyPkc(doc: PkcStudyDocument): Uint8Array {
   if (doc.version !== PKC_STUDY_VERSION) {
     throw new Error(`Unsupported study PKC version: ${doc.version}`);
   }
-  const json = Buffer.from(JSON.stringify(doc), "utf-8");
+  const json = utf8Encode(JSON.stringify(doc));
   const compressed = gzipSync(json);
   const out = new Uint8Array(PKC_MAGIC.length + 4 + compressed.length);
   out.set(PKC_MAGIC, 0);
@@ -27,7 +28,7 @@ export function unpackStudyPkc(data: Uint8Array): PkcStudyDocument {
   const payloadLen = new DataView(data.buffer, data.byteOffset).getUint32(PKC_MAGIC.length, false);
   const payload = data.subarray(PKC_MAGIC.length + 4, PKC_MAGIC.length + 4 + payloadLen);
   const json = gunzipSync(payload);
-  const doc = JSON.parse(json.toString("utf-8")) as PkcStudyDocument;
+  const doc = JSON.parse(utf8Decode(json)) as PkcStudyDocument;
   if (doc.version !== PKC_STUDY_VERSION) {
     throw new Error(`Not a study PKC v${PKC_STUDY_VERSION} document (got version ${doc.version})`);
   }

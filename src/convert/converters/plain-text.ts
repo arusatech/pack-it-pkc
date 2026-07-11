@@ -21,7 +21,7 @@ export class PlainTextConverter implements DocumentConverter {
     if (info.charset) {
       text = new TextDecoder(info.charset).decode(bytes);
     } else {
-      const detected = chardet.detect(Buffer.from(bytes));
+      const detected = chardet.detect(bytes);
       const encoding = typeof detected === "string" ? detected : "utf-8";
       text = new TextDecoder(encoding).decode(bytes);
     }

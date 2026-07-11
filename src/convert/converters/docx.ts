@@ -25,7 +25,7 @@ export class DocxConverter implements DocumentConverter {
   ): Promise<DocumentConverterResult> {
     let mammoth: {
       convertToHtml: (
-        input: { buffer: Buffer },
+        input: { buffer: Uint8Array },
         options?: { styleMap?: string },
       ) => Promise<{ value: string }>;
     };
@@ -38,7 +38,7 @@ export class DocxConverter implements DocumentConverter {
     const styleMap = typeof ctx?.styleMap === "string" ? ctx.styleMap : undefined;
     const processed = await preprocessDocx(stream.remaining());
     const result = await mammoth.convertToHtml(
-      { buffer: Buffer.from(processed) },
+      { buffer: processed },
       styleMap ? { styleMap } : undefined,
     );
 

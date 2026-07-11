@@ -1,5 +1,3 @@
-import { readFile } from "node:fs/promises";
-import { basename, extname } from "node:path";
 import type { StreamInfo } from "../types/stream-info.js";
 import { copyAndUpdate } from "../types/stream-info.js";
 import type {
@@ -20,6 +18,7 @@ import {
 import { guessStreamFormats } from "../detect/format-detector.js";
 import { ByteStream } from "../utils/byte-stream.js";
 import { normalizeMarkdown } from "../utils/normalize.js";
+import { basename, extname } from "../utils/path-name.js";
 import { fileUriToPath, parseDataUri } from "../utils/uri.js";
 import type { GgufInferenceProvider } from "../inference/types.js";
 import {
@@ -42,6 +41,22 @@ import {
   YouTubeConverter,
   ZipConverter,
 } from "./converters/index.js";
+
+function isNodeRuntime(): boolean {
+  return typeof process !== "undefined" && !!process.versions?.node;
+}
+
+async function readLocalFile(path: string): Promise<Uint8Array> {
+  if (!isNodeRuntime()) {
+    throw new Error(
+      "convertLocal() requires Node.js. In browser/Capacitor/PWA, pass file bytes via convertBytes() or convert(Uint8Array).",
+    );
+  }
+  // Dynamic specifier keeps browser bundlers from resolving Node builtins at build time.
+  const fsMod = "node:fs/promises";
+  const { readFile } = await import(/* @vite-ignore */ fsMod);
+  return readFile(path);
+}
 
 export interface MarkItDownOptions {
   enableBuiltins?: boolean;
@@ -122,7 +137,7 @@ export class MarkItDown {
   }
 
   async convertLocal(path: string, streamInfo?: StreamInfo, ctx?: ConverterContext): Promise<DocumentConverterResult> {
-    const bytes = await readFile(path);
+    const bytes = await readLocalFile(path);
     const base: StreamInfo = copyAndUpdate(
       { localPath: path, extension: extname(path), filename: basename(path) },
       streamInfo ?? {},

@@ -4,6 +4,7 @@ import type { StreamInfo } from "../../types/stream-info.js";
 import type { ByteStream } from "../../utils/byte-stream.js";
 import type { ConverterContext, DocumentConverter, DocumentConverterResult } from "../../types/converter.js";
 import { MissingDependencyError } from "../../types/exceptions.js";
+import { toBase64 } from "../../utils/binary.js";
 
 const ACCEPTED_MIME_PREFIXES = [
   "application/vnd.openxmlformats-officedocument.presentationml",
@@ -174,7 +175,7 @@ async function extractSlideImages(
     }
 
     if (ctx?.keepDataUris) {
-      const b64 = Buffer.from(bytes).toString("base64");
+      const b64 = toBase64(bytes);
       lines.push(`\n![${alt}](data:${mime};base64,${b64})\n`);
     } else {
       lines.push(`\n![${alt}](${filename})\n`);

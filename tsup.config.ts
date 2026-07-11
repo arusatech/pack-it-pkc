@@ -15,13 +15,18 @@ const external = [
   "youtube-transcript-api-js",
   "music-metadata",
   "llama-cpp-capacitor",
+  "@capacitor/filesystem",
+  "chardet",
+  "cheerio",
+  "turndown",
 ];
 
 export default defineConfig({
-  entry: [
-    "src/index.ts",
-    "src/inference/capacitor-provider.ts",
-  ],
+  entry: {
+    index: "src/index.ts",
+    "inference/capacitor-provider": "src/inference/capacitor-provider.ts",
+    "pdf/editor": "src/pdf/editor.ts",
+  },
   format: ["esm", "cjs"],
   dts: {
     // tsup injects baseUrl: "." during DTS bundling (tsup#1388); TS 6.0 deprecates baseUrl.
@@ -31,4 +36,7 @@ export default defineConfig({
   },
   clean: true,
   external,
+  esbuildOptions(options) {
+    options.platform = "neutral";
+  },
 });

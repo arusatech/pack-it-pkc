@@ -3,6 +3,7 @@ import type { StreamInfo } from "../../types/stream-info.js";
 import type { ByteStream } from "../../utils/byte-stream.js";
 import type { DocumentConverter, DocumentConverterResult } from "../../types/converter.js";
 import { convertHtmlStringToMarkdown } from "../../utils/html-to-markdown.js";
+import { decodeBase64Url } from "../../utils/binary.js";
 
 const ACCEPTED_MIME = ["text/html", "application/xhtml"];
 const ACCEPTED_EXT = [".html", ".htm"];
@@ -15,8 +16,8 @@ function decodeBingRedirectHref(href: string): string {
     const u = parsed.searchParams.get("u");
     if (!u) return href;
 
-    const padded = u.slice(2).trim() + "==";
-    return Buffer.from(padded, "base64url").toString("utf-8");
+    const padded = u.slice(2).trim();
+    return decodeBase64Url(padded);
   } catch {
     return href;
   }

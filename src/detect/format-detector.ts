@@ -52,7 +52,7 @@ export async function guessStreamFormats(
   let charset: string | null = enhanced.charset ?? null;
   const textLike = magicGuess ? isTextMime(magicGuess.mime) : isLikelyText(head);
   if (textLike && !charset) {
-    const detected = chardet.detect(Buffer.from(head));
+    const detected = chardet.detect(head);
     if (typeof detected === "string") charset = normalizeCharset(detected);
   }
 

@@ -4,6 +4,7 @@ import type {
   GgufInferenceProvider,
   VisionRequest,
 } from "./types.js";
+import { toBase64 } from "../utils/binary.js";
 
 type CapacitorLlama = {
   initLlama: (opts: {
@@ -118,8 +119,5 @@ export class CapacitorGgufProvider implements GgufInferenceProvider {
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
-  if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64");
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s);
+  return toBase64(bytes);
 }

@@ -13,9 +13,8 @@ export default defineConfig({
   server: { port: 5173, open: true },
   resolve: {
     alias: {
+      // convertLocal() dynamically imports node:fs only on Node; stub for browser harness.
       "node:fs/promises": resolve(root, "stubs/fs-promises.ts"),
-      "node:path": resolve(root, "stubs/path.ts"),
-      "node:zlib": resolve(root, "stubs/zlib.ts"),
     },
   },
   optimizeDeps: {

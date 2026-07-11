@@ -13,7 +13,7 @@ declare module "youtube-transcript-api-js" {
 
 declare module "music-metadata" {
   export function parseBuffer(
-    buf: Buffer,
+    buf: Uint8Array | Buffer,
     opts?: { mimeType?: string },
   ): Promise<{
     common: Record<string, unknown>;
@@ -23,7 +23,7 @@ declare module "music-metadata" {
 
 declare module "mammoth" {
   export function convertToHtml(
-    input: { buffer: Buffer },
+    input: { buffer: Uint8Array | Buffer },
     options?: { styleMap?: string },
   ): Promise<{ value: string }>;
 }
@@ -32,7 +32,10 @@ declare module "xlsx" {
   export interface WorkSheet {
     [key: string]: unknown;
   }
-  export function read(data: Buffer, opts: { type: "buffer" }): {
+  export function read(
+    data: Buffer | Uint8Array | ArrayBuffer | string,
+    opts: { type: "buffer" | "array" | "base64" | "binary" | "string" },
+  ): {
     SheetNames: string[];
     Sheets: Record<string, WorkSheet>;
   };
@@ -55,6 +58,28 @@ declare module "jszip" {
     file(name: string, data?: Uint8Array | string): JSZipObject | null;
     generateAsync(options: { type: "arraybuffer" }): Promise<ArrayBuffer>;
   }
+}
+
+declare module "@capacitor/filesystem" {
+  export const Filesystem: {
+    Directory: { Data: string; [key: string]: string };
+    Encoding?: { UTF8: string };
+    writeFile: (opts: {
+      path: string;
+      data: string;
+      directory: string;
+      recursive?: boolean;
+    }) => Promise<{ uri?: string } | void>;
+    readFile: (opts: {
+      path: string;
+      directory: string;
+      encoding?: string;
+    }) => Promise<{ data: string }>;
+    deleteFile: (opts: { path: string; directory: string }) => Promise<void>;
+    mkdir: (opts: { path: string; directory: string; recursive?: boolean }) => Promise<void>;
+    getUri: (opts: { path: string; directory: string }) => Promise<{ uri: string }>;
+  };
+  export default Filesystem;
 }
 
 declare module "llama-cpp-capacitor" {

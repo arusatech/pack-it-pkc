@@ -78,6 +78,36 @@ describe("PKC", () => {
   });
 });
 
+describe("Study PKC", () => {
+  it("round-trips packStudyPkc/unpackStudyPkc", async () => {
+    const { packStudyPkc, unpackStudyPkc } = await import("../src/pkc/pack-study.js");
+    const { PKC_STUDY_VERSION } = await import("../src/pkc/study-types.js");
+    const doc = {
+      version: PKC_STUDY_VERSION,
+      title: "Study",
+      source: "a.pdf",
+      createdAt: new Date().toISOString(),
+      markdown: "# Hi",
+      blocks: [],
+      chunks: [],
+      flashCards: [],
+      mcqs: [],
+      models: { embedding: null, chat: null },
+      stats: {
+        blockCount: 0,
+        chunkCount: 0,
+        embeddedChunkCount: 0,
+        flashCardCount: 0,
+        mcqCount: 0,
+      },
+    };
+    const bytes = packStudyPkc(doc);
+    const out = unpackStudyPkc(bytes);
+    expect(out.version).toBe(PKC_STUDY_VERSION);
+    expect(out.markdown).toBe("# Hi");
+  });
+});
+
 describe("format detector", () => {
   it("guesses from stream", async () => {
     const { guessStreamFormats } = await import("../src/detect/format-detector.js");

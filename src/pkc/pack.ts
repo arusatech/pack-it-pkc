@@ -1,4 +1,5 @@
-import { gzipSync, gunzipSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "fflate";
+import { utf8Decode, utf8Encode } from "../utils/binary.js";
 
 export const PKC_MAGIC = new Uint8Array([0x50, 0x4b, 0x43, 0x01]); // PKC\x01
 export const PKC_VERSION = 1;
@@ -34,7 +35,7 @@ export function packToPkc(markdown: string, options: PackOptions = {}): Uint8Arr
     createdAt: new Date().toISOString(),
   };
 
-  const json = Buffer.from(JSON.stringify(doc), "utf-8");
+  const json = utf8Encode(JSON.stringify(doc));
   const compressed = gzipSync(json);
 
   const out = new Uint8Array(PKC_MAGIC.length + 4 + compressed.length);
@@ -53,7 +54,7 @@ export function unpackPkc(data: Uint8Array): PkcDocument {
   const payloadLen = new DataView(data.buffer, data.byteOffset).getUint32(PKC_MAGIC.length, false);
   const payload = data.subarray(PKC_MAGIC.length + 4, PKC_MAGIC.length + 4 + payloadLen);
   const json = gunzipSync(payload);
-  return JSON.parse(json.toString("utf-8")) as PkcDocument;
+  return JSON.parse(utf8Decode(json)) as PkcDocument;
 }
 
 export interface PackAndConvertOptions extends PackOptions {

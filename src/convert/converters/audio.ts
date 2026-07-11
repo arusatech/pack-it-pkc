@@ -35,7 +35,7 @@ export class AudioConverter implements DocumentConverter {
 
     try {
       const { parseBuffer } = await import("music-metadata");
-      const metadata = await parseBuffer(Buffer.from(bytes), {
+      const metadata = await parseBuffer(bytes, {
         mimeType: info.mimetype ?? undefined,
       });
       const common = metadata.common as {
