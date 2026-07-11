@@ -32,7 +32,7 @@ type CapacitorLlama = {
 };
 
 /**
- * GGUF provider for Capacitor mobile apps and PWA (WASM + OPFS).
+ * GGUF provider for desktop, iOS, Android, and PWA via llama-cpp-capacitor.
  * Requires peer dependency: llama-cpp-capacitor
  */
 export class CapacitorGgufProvider implements GgufInferenceProvider {

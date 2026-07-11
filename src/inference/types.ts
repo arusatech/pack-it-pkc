@@ -19,10 +19,10 @@ export interface CompletionOptions {
 
 /**
  * Platform-agnostic GGUF inference (replaces ONNX/OpenAI for on-device vision & text).
- * Implementations: Capacitor (mobile/PWA), Node (Electron/desktop).
+ * Implementation: CapacitorGgufProvider via llama-cpp-capacitor (desktop, iOS, Android, PWA).
  */
 export interface GgufInferenceProvider {
-  readonly platform: "capacitor" | "node";
+  readonly platform: "capacitor";
 
   loadModel(options: { modelPath: string; contextId?: number; embedding?: boolean }): Promise<void>;
   unloadModel?(contextId?: number): Promise<void>;

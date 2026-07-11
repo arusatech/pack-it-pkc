@@ -1185,7 +1185,7 @@ export class PdfCanvasEditor {
         : "AI fix math";
     aiBtn.title = this.llmProvider
       ? "Refine with the active GGUF chat model"
-      : "Requires an LLM provider (download a chat model and ensure llama-cpp-capacitor / node-llama-cpp is available)";
+      : "Requires an LLM provider (download a chat model and ensure llama-cpp-capacitor is available)";
     aiBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       void this.aiFixBlock(block.id, area, refreshPreview, aiBtn);

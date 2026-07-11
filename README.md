@@ -6,7 +6,7 @@ JavaScript/TypeScript port of [Microsoft MarkItDown](ref-code/markitdown) with:
 
 - **No ONNX** — format detection uses magic bytes + `file-type` (replaces Magika/onnxruntime)
 - **GGUF inference** — vision/OCR via llama.cpp adapters (replaces cloud LLM for on-device use)
-- **Multi-platform** — installable library for Node, Capacitor mobile/PWA, and Electron desktop apps
+- **Multi-platform** — installable library for desktop, iOS, Android, and PWA (GGUF via `llama-cpp-capacitor`)
 
 ## Architecture
 
@@ -14,7 +14,7 @@ JavaScript/TypeScript port of [Microsoft MarkItDown](ref-code/markitdown) with:
 src/
   detect/       # Format detection (magic bytes, MIME/extension inference)
   convert/      # MarkItDown orchestrator + format converters
-  inference/    # GGUF providers (Capacitor + Node/Electron)
+  inference/    # GGUF via llama-cpp-capacitor (desktop / iOS / Android / PWA)
   pdf/          # PDF block extraction + canvas editor helpers
   pkc/          # PKC binary container (markdown + study v2)
   types/        # StreamInfo, DocumentConverter, exceptions
@@ -39,10 +39,7 @@ Python MarkItDown uses Magika, which runs a small ONNX model. This port uses:
 
 ### GGUF inference (replaces OpenAI vision / ONNX OCR)
 
-| Platform | Package | Use case |
-|----------|---------|----------|
-| Mobile / PWA | [`llama-cpp-capacitor`](https://www.npmjs.com/package/llama-cpp-capacitor) | Offline multimodal GGUF on iOS, Android, WASM |
-| Desktop / Node | [`node-llama-cpp`](https://www.npmjs.com/package/node-llama-cpp) | Host Electron/desktop app or server-side conversion |
+One runtime for all targets: [`llama-cpp-capacitor`](https://www.npmjs.com/package/llama-cpp-capacitor) (native on iOS/Android/desktop hosts, WASM + OPFS on PWA).
 
 ```typescript
 import { MarkItDown } from "@annadata/pack-it-pkc";
@@ -99,17 +96,14 @@ npm run build
 npm test
 ```
 
-### Optional: GGUF peer dependencies
+### Optional: GGUF peer dependency
 
 ```bash
-# Mobile / Capacitor / PWA
+# Desktop / iOS / Android / PWA
 npm install llama-cpp-capacitor
-
-# Desktop / Electron host app
-npm install node-llama-cpp
 ```
 
-Use this package from your desktop app:
+Use this package from your host app:
 
 ```bash
 npm install @annadata/pack-it-pkc
@@ -119,7 +113,7 @@ npm install @annadata/pack-it-pkc
 
 ```typescript
 import { MarkItDown, generateStudyPkc } from "@annadata/pack-it-pkc";
-import { NodeGgufProvider } from "@annadata/pack-it-pkc/inference/node";
+import { CapacitorGgufProvider } from "@annadata/pack-it-pkc/inference/capacitor";
 ```
 
 ## Scripts

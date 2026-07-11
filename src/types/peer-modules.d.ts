@@ -57,21 +57,6 @@ declare module "jszip" {
   }
 }
 
-declare module "node-llama-cpp" {
-  export class LlamaChatSession {
-    constructor(opts: { contextSequence: unknown });
-    prompt(text: string, options?: { maxTokens?: number }): Promise<string>;
-  }
-
-  export function getLlama(): Promise<{
-    loadModel(opts: { modelPath: string }): Promise<{
-      createContext(): Promise<{
-        getSequence(): unknown;
-      }>;
-    }>;
-  }>;
-}
-
 declare module "llama-cpp-capacitor" {
   const LlamaCpp: unknown;
   export { LlamaCpp };

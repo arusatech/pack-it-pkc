@@ -15,14 +15,12 @@ const external = [
   "youtube-transcript-api-js",
   "music-metadata",
   "llama-cpp-capacitor",
-  "node-llama-cpp",
 ];
 
 export default defineConfig({
   entry: [
     "src/index.ts",
     "src/inference/capacitor-provider.ts",
-    "src/inference/node-provider.ts",
   ],
   format: ["esm", "cjs"],
   dts: {

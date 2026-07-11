@@ -15,10 +15,6 @@
     "./inference/capacitor": {
       "types": "./dist/inference/capacitor-provider.d.ts",
       "import": "./dist/inference/capacitor-provider.js"
-    },
-    "./inference/node": {
-      "types": "./dist/inference/node-provider.d.ts",
-      "import": "./dist/inference/node-provider.js"
     }
   },
   "files": [
@@ -60,14 +56,10 @@
     "@kenjiuno/msgreader": "^1.27.1"
   },
   "peerDependencies": {
-    "llama-cpp-capacitor": ">=0.2.0",
-    "node-llama-cpp": ">=3.0.0"
+    "llama-cpp-capacitor": ">=0.2.0"
   },
   "peerDependenciesMeta": {
     "llama-cpp-capacitor": {
-      "optional": true
-    },
-    "node-llama-cpp": {
       "optional": true
     }
   },
