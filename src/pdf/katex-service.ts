@@ -129,6 +129,13 @@ export function mountFormulaPreview(
   if (containsMathOrChemistry(prepared) && /\$/.test(prepared)) {
     el.textContent = prepared;
     renderMathInDom(el);
+    // If auto-render left the raw source (no .katex nodes), fall back to direct render.
+    if (!el.querySelector(".katex")) {
+      el.innerHTML = renderToHtml(
+        prepared.replace(/^\$\$([\s\S]*)\$\$$/, "$1").replace(/^\$([\s\S]*)\$$/, "$1"),
+        opts,
+      );
+    }
     return;
   }
 

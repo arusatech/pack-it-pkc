@@ -12,6 +12,7 @@ import { sortBlocksByPosition } from "./pdf-block-types.js";
 import { blocksToMarkdown, syncTableBlockContent, tableRowsToMarkdown } from "./pdf-blocks-to-markdown.js";
 import { savePdfBlocksLocal } from "./pdf-blocks-storage.js";
 import { processBlockRegionFromPdf } from "./pdf-block-region-processor.js";
+import { extractPdfPageBlocks } from "./pdf-extractor.js";
 import { asQaBlock, isQaPlaceholder, isQaSegment, qaPart, qaPartsToContent } from "./pdf-qa.js";
 import { containsMathOrChemistry, mountFormulaPreview } from "./katex-service.js";
 import { llmPlainToMhchem } from "./chemistry-llm-assist.js";
@@ -56,6 +57,18 @@ const TAG_LABEL: Record<CanvasTagKind, string> = {
   formula: "Formula",
 };
 
+/** Single-letter badge shown on the PDF canvas overlay. */
+const TAG_LETTER: Record<CanvasTagKind, string> = {
+  text: "T",
+  table: "T",
+  image: "I",
+  qa: "Q",
+  question: "Q",
+  answer: "Q",
+  math: "M",
+  formula: "F",
+};
+
 const BLOCK_COLOR: Record<PdfBlockType, string> = {
   text: TAG_COLOR.text,
   heading: "#8b5cf6",
@@ -72,6 +85,15 @@ const BLOCK_LABEL: Record<PdfBlockType, string> = {
   table: "Table",
   image: "Image",
   qa: "Q & A",
+};
+
+const BLOCK_LETTER: Record<PdfBlockType, string> = {
+  text: "T",
+  heading: "H",
+  list: "L",
+  table: "T",
+  image: "I",
+  qa: "Q",
 };
 
 function isPlaceholderBlockContent(block: PdfBlock): boolean {
@@ -144,6 +166,7 @@ export class PdfCanvasEditor {
   private tagMenu: TagMenuState | null = null;
   private imageColorMode: boolean;
   private processingBlockIds = new Set<string>();
+  private processingPage = false;
   private aiFixingIds = new Set<string>();
   /** Per-block newline collapse (annadata DocCanvasEditor wrap toggle). */
   private wrapTextIds = new Set<string>();
@@ -180,7 +203,6 @@ export class PdfCanvasEditor {
   private async bootstrap(): Promise<void> {
     this.normalizeQaBlocks();
     await this.renderCurrentPage();
-    await this.processAllPendingBlocks();
   }
 
   private normalizeQaBlocks(): void {
@@ -350,8 +372,6 @@ export class PdfCanvasEditor {
     this.renderBlockPanel();
     this.drawOverlays();
     this.syncBlockPanelHeight();
-    await this.processPendingImagesOnCurrentPage({ refresh: false });
-    this.renderBlockPanel();
   }
 
   /** Match blocks column max-height to the loaded PDF canvas height. */
@@ -443,6 +463,14 @@ export class PdfCanvasEditor {
     return BLOCK_LABEL[block.type];
   }
 
+  private blockTagLetter(block: PdfBlock): string {
+    if (isQaSegment(block)) return TAG_LETTER.qa;
+    if (block.segmentTag && block.segmentTag in TAG_LETTER) {
+      return TAG_LETTER[block.segmentTag as CanvasTagKind];
+    }
+    return BLOCK_LETTER[block.type];
+  }
+
   private blockTagColor(block: PdfBlock): string {
     if (isQaSegment(block)) return TAG_COLOR.qa;
     if (block.segmentTag && block.segmentTag in TAG_COLOR) {
@@ -503,27 +531,72 @@ export class PdfCanvasEditor {
     }
   }
 
-  private async processAllPendingBlocks(): Promise<void> {
-    for (const page of Object.values(this.doc.pages)) {
-      for (const blockId of page.order) {
-        const block = page.blocks[blockId];
-        if (!block || !isPlaceholderBlockContent(block)) continue;
-        if (block.type === "image" || block.segmentTag === "image") continue;
-        await this.processBlock(blockId, { refresh: false });
-      }
+  private async processCurrentPage(): Promise<void> {
+    if (this.processingPage) return;
+    const pageKey = String(this.currentPage);
+    const page = this.doc.pages[pageKey];
+    if (!page) {
+      this.onAssistProgress?.("Page not found");
+      return;
     }
+
+    this.processingPage = true;
     this.renderBlockPanel();
-  }
 
-  private async processPendingImagesOnCurrentPage(options?: { refresh?: boolean }): Promise<void> {
-    const page = this.doc.pages[String(this.currentPage)];
-    if (!page) return;
+    try {
+      // Empty page → auto-detect & create blocks for this page only.
+      // Existing regions → fill/process their content (OCR / image crop / etc.).
+      if (page.order.length === 0) {
+        this.onAssistProgress?.(
+          `Auto-tagging page ${this.currentPage + 1}…`,
+        );
+        const extracted = await extractPdfPageBlocks(this.pdfBytes, this.currentPage, {
+          sort: true,
+        });
+        const blocksMap: Record<string, PdfBlock> = {};
+        const order: string[] = [];
+        for (const block of extracted.blocks) {
+          blocksMap[block.id] = block;
+          order.push(block.id);
+        }
 
-    for (const blockId of page.order) {
-      const block = page.blocks[blockId];
-      if (!block || (block.type !== "image" && block.segmentTag !== "image")) continue;
-      if (!isPlaceholderBlockContent(block)) continue;
-      await this.processBlock(blockId, options);
+        this.doc = {
+          ...this.doc,
+          pages: {
+            ...this.doc.pages,
+            [pageKey]: {
+              width: extracted.width,
+              height: extracted.height,
+              blocks: blocksMap,
+              order,
+            },
+          },
+        };
+        this.emitChange();
+        this.onAssistProgress?.(
+          `Page ${this.currentPage + 1} tagged · ${order.length} block(s)`,
+        );
+      } else {
+        this.onAssistProgress?.(
+          `Processing page ${this.currentPage + 1} · ${page.order.length} block(s)…`,
+        );
+        for (const blockId of page.order) {
+          const block = this.doc.pages[pageKey]?.blocks[blockId];
+          if (!block) continue;
+          await this.processBlock(blockId, { refresh: false });
+        }
+        this.onAssistProgress?.(
+          `Page ${this.currentPage + 1} processed · ${page.order.length} block(s)`,
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.onAssistProgress?.(`Process Page failed: ${message}`);
+      console.error("[PdfCanvasEditor] processCurrentPage", err);
+    } finally {
+      this.processingPage = false;
+      this.renderBlockPanel();
+      this.drawOverlays();
     }
   }
 
@@ -752,6 +825,7 @@ export class PdfCanvasEditor {
     this.closeTagMenu();
     this.drawOverlays();
     this.renderBlockPanel();
+    // Fill this tagged region immediately (OCR / table / formula / image crop).
     void this.processBlock(id);
     const card = this.blockPanel.querySelector(`[data-block-id="${id}"]`);
     card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -932,13 +1006,18 @@ export class PdfCanvasEditor {
       el.style.top = `${y0}px`;
       el.style.width = `${Math.max(4, x1 - x0)}px`;
       el.style.height = `${Math.max(4, y1 - y0)}px`;
-      el.style.borderColor = BLOCK_COLOR[block.type];
-      el.title = `${BLOCK_LABEL[block.type]}: ${block.id}`;
+      const tagLabel = this.blockTagLabel(block);
+      const tagLetter = this.blockTagLetter(block);
+      const tagColor = this.blockTagColor(block);
+      el.style.borderColor = tagColor;
+      el.style.color = tagColor;
+      el.title = `${tagLabel}: ${block.id}`;
 
       const label = document.createElement("span");
       label.className = "pce-block-label";
-      label.style.background = BLOCK_COLOR[block.type];
-      label.append(document.createTextNode(BLOCK_LABEL[block.type]));
+      label.style.background = tagColor;
+      label.title = tagLabel;
+      label.append(document.createTextNode(tagLetter));
 
       const overlayRemove = document.createElement("button");
       overlayRemove.type = "button";
@@ -968,8 +1047,31 @@ export class PdfCanvasEditor {
     this.blockPanel.innerHTML = "";
     const header = document.createElement("div");
     header.className = "pce-panel-header";
-    header.innerHTML =
-      `<strong>Blocks</strong><span class="pce-panel-hint">draw on page to add · click overlay to select</span>`;
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "pce-panel-title-row";
+
+    const title = document.createElement("strong");
+    title.textContent = "Blocks";
+
+    const processPageBtn = document.createElement("button");
+    processPageBtn.type = "button";
+    processPageBtn.className = "pce-process-page-btn";
+    processPageBtn.textContent = this.processingPage ? "Processing…" : "Process Page";
+    processPageBtn.title = "Extract / fill content for all tagged regions on this page";
+    processPageBtn.disabled = this.processingPage;
+    processPageBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.processCurrentPage();
+    });
+
+    titleRow.append(title, processPageBtn);
+
+    const hint = document.createElement("span");
+    hint.className = "pce-panel-hint";
+    hint.textContent = "Process Page auto-tags this page · draw a region to tag & fill it now";
+
+    header.append(titleRow, hint);
     this.blockPanel.append(header);
 
     const page = this.doc.pages[String(this.currentPage)];
@@ -1147,18 +1249,32 @@ export class PdfCanvasEditor {
     preview.append(previewLabel, previewBody);
 
     const refreshPreview = (content: string) => {
-      const show =
-        !!content.trim() &&
-        (containsMathOrChemistry(content) ||
-          /\\ce\{|\\frac|\\sqrt|\^{|_\{|\$/.test(content));
-      preview.hidden = !show;
-      if (show) {
-        mountFormulaPreview(previewBody, content, {
-          displayMode: block.segmentTag === "formula" || content.trim().startsWith("$$"),
-        });
-      } else {
+      const trimmed = content.trim();
+      // Always show a preview for formula/math tags so OCR plain text is typeset
+      // (wrapped as \\ce{…} / $$…$$), not left looking like a normal text block.
+      preview.hidden = !trimmed;
+      if (!trimmed) {
         previewBody.innerHTML = "";
+        return;
       }
+
+      let forPreview = content;
+      const hasMarkup =
+        containsMathOrChemistry(content) ||
+        /\\ce\{|\\pu\{|\\frac|\\sqrt|\^{|_\{|\$/.test(content);
+
+      if (!hasMarkup) {
+        if (block.segmentTag === "formula") {
+          // Plain chemistry / OCR → mhchem for KaTeX preview
+          forPreview = `\\ce{${trimmed}}`;
+        } else if (block.segmentTag === "math") {
+          forPreview = `$$${trimmed}$$`;
+        }
+      }
+
+      mountFormulaPreview(previewBody, forPreview, {
+        displayMode: block.segmentTag === "formula" || forPreview.trim().startsWith("$$"),
+      });
     };
 
     area.addEventListener("input", () => {

@@ -4,6 +4,8 @@ export * from "./pdf-blocks-to-markdown.js";
 export {
   extractPdfBlocks,
   extractPdfMarkdown,
+  createEmptyPdfDocumentBlocks,
+  extractPdfPageBlocks,
   type ExtractPdfOptions,
   type PdfExtractResult,
 } from "./pdf-extractor.js";
