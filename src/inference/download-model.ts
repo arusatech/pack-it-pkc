@@ -6,7 +6,7 @@
  * - Browser PWA: OPFS
  */
 
-import { getModelById, modelUrlForId } from "./model-catalog.js";
+import { getModelById, modelUrlForId, createModelCatalog } from "./model-catalog.js";
 
 export type DownloadProgress = {
   loaded: number;
@@ -21,6 +21,8 @@ export type DownloadedModelInfo = {
   sourceUrl?: string;
   createdAt: number;
   lastUsedAt: number;
+  /** True when an existing file under AcharyaAnnadata was reused (no network download). */
+  cached?: boolean;
 };
 
 export type DownloadModelOptions = {
@@ -49,6 +51,7 @@ type ManifestMap = Record<string, DownloadedModelInfo>;
 type AcharyaFsBridge = {
   getRootDir: () => Promise<string>;
   exists: (relativePath: string) => Promise<boolean>;
+  stat?: (relativePath: string) => Promise<{ path: string; sizeBytes: number } | null>;
   readText: (relativePath: string) => Promise<string | null>;
   writeText: (relativePath: string, text: string) => Promise<void>;
   unlink: (relativePath: string) => Promise<void>;
@@ -189,6 +192,67 @@ async function writeAcharyaManifest(fs: AcharyaFsBridge, map: ManifestMap): Prom
   await fs.writeText(`${MODELS_DIR}/${MANIFEST_NAME}`, JSON.stringify(map, null, 2));
 }
 
+/** Prefer an existing complete file on disk; `.partial` files are ignored. */
+async function resolveExistingAcharyaModel(
+  fs: AcharyaFsBridge,
+  modelId: string,
+  modelUrl?: string,
+): Promise<DownloadedModelInfo | null> {
+  const relativePath = pathForModelId(modelId);
+  let path: string | null = null;
+  let sizeBytes = 0;
+
+  if (typeof fs.stat === "function") {
+    try {
+      const info = await fs.stat(relativePath);
+      if (info && info.sizeBytes > 0) {
+        path = info.path;
+        sizeBytes = info.sizeBytes;
+      }
+    } catch (err) {
+      // Missing IPC handler / bridge glitch — fall back to exists().
+      console.warn("[download-model] acharyaFs.stat failed; falling back to exists()", err);
+    }
+  }
+
+  if (!path) {
+    try {
+      if (!(await fs.exists(relativePath))) return null;
+      const root = await fs.getRootDir();
+      path = `${root.replace(/[/\\]+$/, "")}/${relativePath}`;
+      sizeBytes = 0;
+    } catch (err) {
+      console.warn("[download-model] acharyaFs.exists/getRootDir failed", err);
+      return null;
+    }
+  }
+
+  const now = Date.now();
+  let manifest: ManifestMap = {};
+  try {
+    manifest = await readAcharyaManifest(fs);
+  } catch (err) {
+    console.warn("[download-model] acharyaFs manifest read failed", err);
+  }
+  const previous = manifest[modelId];
+  const entry: DownloadedModelInfo = {
+    modelId,
+    path,
+    sizeBytes: sizeBytes || previous?.sizeBytes || 0,
+    sourceUrl: modelUrl ?? previous?.sourceUrl,
+    createdAt: previous?.createdAt ?? now,
+    lastUsedAt: now,
+    cached: true,
+  };
+  manifest[modelId] = entry;
+  try {
+    await writeAcharyaManifest(fs, manifest);
+  } catch (err) {
+    console.warn("[download-model] acharyaFs manifest write failed", err);
+  }
+  return entry;
+}
+
 async function downloadToAcharyaFs(
   modelId: string,
   modelUrl: string,
@@ -197,21 +261,17 @@ async function downloadToAcharyaFs(
   const fs = getAcharyaFsBridge();
   if (!fs) throw new Error("acharyaFs bridge is not available");
 
-  const relativePath = pathForModelId(modelId);
-  const manifest = await readAcharyaManifest(fs);
-  const existing = manifest[modelId];
-  if (existing && (await fs.exists(relativePath))) {
-    const updated = { ...existing, lastUsedAt: Date.now() };
-    manifest[modelId] = updated;
-    await writeAcharyaManifest(fs, manifest);
+  const cached = await resolveExistingAcharyaModel(fs, modelId, modelUrl);
+  if (cached) {
     onProgress?.({
-      loaded: existing.sizeBytes,
-      total: existing.sizeBytes,
+      loaded: cached.sizeBytes,
+      total: cached.sizeBytes,
       percentage: 100,
     });
-    return updated;
+    return cached;
   }
 
+  const relativePath = pathForModelId(modelId);
   const { path, sizeBytes } = await fs.downloadUrl(modelUrl, relativePath, onProgress);
   const now = Date.now();
   const entry: DownloadedModelInfo = {
@@ -222,6 +282,7 @@ async function downloadToAcharyaFs(
     createdAt: now,
     lastUsedAt: now,
   };
+  const manifest = await readAcharyaManifest(fs);
   manifest[modelId] = entry;
   await writeAcharyaManifest(fs, manifest);
   return entry;
@@ -537,20 +598,40 @@ async function downloadToNode(
   const { createWriteStream } = await import("node:fs");
   const { pipeline } = await import("node:stream/promises");
   const { Readable } = await import("node:stream");
-  const { mkdir } = await import("node:fs/promises");
+  const { mkdir, stat } = await import("node:fs/promises");
 
+  const dir = await nodeCacheDir();
+  const path = targetPath ?? join(dir, `${sanitizeModelId(modelId)}.gguf`);
   const manifest = await readNodeManifest();
-  const existing = manifest[modelId];
-  if (existing && !targetPath) {
-    const updated = { ...existing, lastUsedAt: Date.now() };
-    manifest[modelId] = updated;
-    await writeNodeManifest(manifest);
-    onProgress?.({
-      loaded: existing.sizeBytes,
-      total: existing.sizeBytes,
-      percentage: 100,
-    });
-    return updated;
+
+  // Reuse file on disk even if the manifest entry is missing.
+  if (!targetPath) {
+    try {
+      const info = await stat(path);
+      if (info.isFile() && info.size > 0) {
+        const now = Date.now();
+        const previous = manifest[modelId];
+        const entry: DownloadedModelInfo = {
+          modelId,
+          path,
+          sizeBytes: info.size,
+          sourceUrl: modelUrl ?? previous?.sourceUrl,
+          createdAt: previous?.createdAt ?? now,
+          lastUsedAt: now,
+          cached: true,
+        };
+        manifest[modelId] = entry;
+        await writeNodeManifest(manifest);
+        onProgress?.({
+          loaded: entry.sizeBytes,
+          total: entry.sizeBytes,
+          percentage: 100,
+        });
+        return entry;
+      }
+    } catch {
+      /* missing → download */
+    }
   }
 
   let res: Response;
@@ -563,8 +644,6 @@ async function downloadToNode(
     throw new Error(`Failed to download model '${modelId}': HTTP ${res.status}`);
   }
 
-  const dir = await nodeCacheDir();
-  const path = targetPath ?? join(dir, `${sanitizeModelId(modelId)}.gguf`);
   await mkdir(dirname(path), { recursive: true });
   const total = Number(res.headers.get("content-length") ?? 0);
   const fileStream = createWriteStream(path);
@@ -692,7 +771,20 @@ export async function isModelDownloaded(modelId: string): Promise<boolean> {
 
 export async function listDownloadedModels(): Promise<DownloadedModelInfo[]> {
   const bridge = getAcharyaFsBridge();
-  if (bridge) return Object.values(await readAcharyaManifest(bridge));
+  if (bridge) {
+    const manifest = await readAcharyaManifest(bridge);
+    // Discover complete files on disk even without a prior manifest entry.
+    for (const entry of createModelCatalog()) {
+      if (manifest[entry.id]) continue;
+      try {
+        const found = await resolveExistingAcharyaModel(bridge, entry.id, entry.url);
+        if (found) manifest[entry.id] = found;
+      } catch (err) {
+        console.warn(`[download-model] listDownloadedModels skip ${entry.id}`, err);
+      }
+    }
+    return Object.values(manifest);
+  }
   if (isCapacitorNative()) {
     const fs = await tryLoadCapacitorFilesystem();
     if (fs) return Object.values(await readCapacitorManifest(fs));
@@ -701,7 +793,32 @@ export async function listDownloadedModels(): Promise<DownloadedModelInfo[]> {
     return Object.values(await readOpfsManifest());
   }
   if (isNodeRuntime()) {
-    return Object.values(await readNodeManifest());
+    const manifest = await readNodeManifest();
+    const { join } = await import("node:path");
+    const { stat } = await import("node:fs/promises");
+    const dir = await nodeCacheDir();
+    for (const entry of createModelCatalog()) {
+      if (manifest[entry.id]) continue;
+      const path = join(dir, `${sanitizeModelId(entry.id)}.gguf`);
+      try {
+        const info = await stat(path);
+        if (info.isFile() && info.size > 0) {
+          const now = Date.now();
+          manifest[entry.id] = {
+            modelId: entry.id,
+            path,
+            sizeBytes: info.size,
+            sourceUrl: entry.url,
+            createdAt: now,
+            lastUsedAt: now,
+          };
+        }
+      } catch {
+        /* missing */
+      }
+    }
+    await writeNodeManifest(manifest);
+    return Object.values(manifest);
   }
   return [];
 }
@@ -709,8 +826,13 @@ export async function listDownloadedModels(): Promise<DownloadedModelInfo[]> {
 export async function getModelLocalPath(modelId: string): Promise<string | null> {
   const bridge = getAcharyaFsBridge();
   if (bridge) {
-    const entry = (await readAcharyaManifest(bridge))[modelId];
-    return entry?.path ?? null;
+    try {
+      const found = await resolveExistingAcharyaModel(bridge, modelId);
+      return found?.path ?? null;
+    } catch (err) {
+      console.warn("[download-model] getModelLocalPath acharya resolve failed", err);
+      return null;
+    }
   }
   if (isCapacitorNative()) {
     const fs = await tryLoadCapacitorFilesystem();
@@ -724,8 +846,16 @@ export async function getModelLocalPath(modelId: string): Promise<string | null>
     return entry?.path ?? null;
   }
   if (isNodeRuntime()) {
-    const entry = (await readNodeManifest())[modelId];
-    return entry?.path ?? null;
+    const { join } = await import("node:path");
+    const { stat } = await import("node:fs/promises");
+    const path = join(await nodeCacheDir(), `${sanitizeModelId(modelId)}.gguf`);
+    try {
+      const info = await stat(path);
+      if (info.isFile() && info.size > 0) return path;
+    } catch {
+      /* missing */
+    }
+    return null;
   }
   return null;
 }
