@@ -11,7 +11,11 @@ import type {
 import { sortBlocksByPosition } from "./pdf-block-types.js";
 import { blocksToMarkdown, syncTableBlockContent, tableRowsToMarkdown } from "./pdf-blocks-to-markdown.js";
 import { savePdfBlocksLocal } from "./pdf-blocks-storage.js";
-import { processBlockRegionFromPdf } from "./pdf-block-region-processor.js";
+import {
+  extractImageRegionTextFromPdf,
+  extractSearchTokensFromText,
+  processBlockRegionFromPdf,
+} from "./pdf-block-region-processor.js";
 import { extractPdfPageBlocks } from "./pdf-extractor.js";
 import { asQaBlock, isQaPlaceholder, isQaSegment, qaPart, qaPartsToContent } from "./pdf-qa.js";
 import { containsMathOrChemistry, mountFormulaPreview } from "./katex-service.js";
@@ -19,6 +23,7 @@ import { llmPlainToMhchem } from "./chemistry-llm-assist.js";
 import { llmPlainToLatex } from "./math-llm-assist.js";
 import { collapseNewlinesToSpaces, WRAP_TOGGLE_ICON_SVG } from "./pdf-block-text-wrap.js";
 import { renderPdfPageDataUrl, type PageRenderInfo } from "./pdf-page-renderer.js";
+import { optimizeImageCanvasToDataUrl } from "./image-optimize.js";
 import type { GgufInferenceProvider } from "../inference/types.js";
 import { getActiveModelId } from "../inference/model-session.js";
 import { LFM2_CHAT_MODEL_ID } from "../inference/model-catalog.js";
@@ -510,14 +515,25 @@ export class PdfCanvasEditor {
 
     try {
       if (block.type === "image" || block.segmentTag === "image") {
-        const dataUrl = this.cropSelectionToDataUrl(this.bboxToSelectionRect(block.bbox));
-        if (dataUrl) {
-          this.patchBlock(blockId, {
-            dataUrl,
-            width: Math.round(block.bbox.w),
-            height: Math.round(block.bbox.h),
-          });
+        const optimized = await this.cropSelectionToOptimizedDataUrl(
+          this.bboxToSelectionRect(block.bbox),
+        );
+        // Same idea as annadata-app SegmentProcessor: keep raster + searchable text.
+        const { ocrText, searchPatternInImage } = extractImageRegionTextFromPdf(
+          this.pdfBytes,
+          block.page,
+          block.bbox,
+        );
+        const imagePatch: Partial<PdfImageBlock> = {
+          ocrText,
+          searchPatternInImage,
+        };
+        if (optimized) {
+          imagePatch.dataUrl = optimized.dataUrl;
+          imagePatch.width = optimized.width;
+          imagePatch.height = optimized.height;
         }
+        this.patchBlock(blockId, imagePatch);
         return;
       }
 
@@ -794,7 +810,7 @@ export class PdfCanvasEditor {
     this.tagMenuEl.append(actions);
   }
 
-  private cropSelectionToDataUrl(sel: SelectionRect): string | undefined {
+  private cropSelectionToCanvas(sel: SelectionRect): HTMLCanvasElement | undefined {
     if (!this.pageImg.complete || !this.pageImg.naturalWidth) return undefined;
     const scaleX = this.pageImg.naturalWidth / Math.max(1, this.pageImg.offsetWidth);
     const scaleY = this.pageImg.naturalHeight / Math.max(1, this.pageImg.offsetHeight);
@@ -809,7 +825,30 @@ export class PdfCanvasEditor {
     const ctx = canvas.getContext("2d");
     if (!ctx) return undefined;
     ctx.drawImage(this.pageImg, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/png");
+    return canvas;
+  }
+
+  /** Crop region → denoise/bleach background → WebP/JPEG (small on disk). */
+  private async cropSelectionToOptimizedDataUrl(
+    sel: SelectionRect,
+  ): Promise<{ dataUrl: string; width: number; height: number } | undefined> {
+    const canvas = this.cropSelectionToCanvas(sel);
+    if (!canvas) return undefined;
+    try {
+      return await optimizeImageCanvasToDataUrl(canvas, {
+        colorMode: this.imageColorMode,
+        maxEdge: 1600,
+        webpQuality: 0.78,
+        jpegQuality: 0.82,
+      });
+    } catch (err) {
+      console.warn("[PdfCanvasEditor] image optimize failed, using jpeg fallback", err);
+      return {
+        dataUrl: canvas.toDataURL("image/jpeg", 0.82),
+        width: canvas.width,
+        height: canvas.height,
+      };
+    }
   }
 
   private commitDrawnBlock(): void {
@@ -846,7 +885,7 @@ export class PdfCanvasEditor {
     const defaultCaption = titleTrim || `${TAG_LABEL[tag]} (${id})`;
 
     if (tag === "image") {
-      const dataUrl = this.cropSelectionToDataUrl(selection);
+      // dataUrl filled by processBlock (denoise + compressed WebP/JPEG).
       const imageBlock: PdfImageBlock = {
         id,
         type: "image",
@@ -857,7 +896,6 @@ export class PdfCanvasEditor {
         segmentTag: tag,
         width: Math.round(bbox.w),
         height: Math.round(bbox.h),
-        dataUrl,
       };
       return imageBlock;
     }
@@ -1045,14 +1083,9 @@ export class PdfCanvasEditor {
 
   private renderBlockPanel(): void {
     this.blockPanel.innerHTML = "";
-    const header = document.createElement("div");
-    header.className = "pce-panel-header";
 
-    const titleRow = document.createElement("div");
-    titleRow.className = "pce-panel-title-row";
-
-    const title = document.createElement("strong");
-    title.textContent = "Blocks";
+    const processBar = document.createElement("div");
+    processBar.className = "pce-process-page-bar";
 
     const processPageBtn = document.createElement("button");
     processPageBtn.type = "button";
@@ -1065,14 +1098,8 @@ export class PdfCanvasEditor {
       void this.processCurrentPage();
     });
 
-    titleRow.append(title, processPageBtn);
-
-    const hint = document.createElement("span");
-    hint.className = "pce-panel-hint";
-    hint.textContent = "Process Page auto-tags this page · draw a region to tag & fill it now";
-
-    header.append(titleRow, hint);
-    this.blockPanel.append(header);
+    processBar.append(processPageBtn);
+    this.blockPanel.append(processBar);
 
     const page = this.doc.pages[String(this.currentPage)];
     if (!page || page.order.length === 0) {
@@ -1177,6 +1204,33 @@ export class PdfCanvasEditor {
         img.src = block.dataUrl;
         img.alt = block.content;
         card.append(img);
+      }
+
+      const ocrLabel = document.createElement("label");
+      ocrLabel.className = "pce-image-ocr-label";
+      ocrLabel.textContent = "Text in image";
+      const ocrArea = document.createElement("textarea");
+      ocrArea.className = "pce-textarea pce-image-ocr";
+      ocrArea.rows = 4;
+      ocrArea.placeholder = "Parsed text from this region (editable)";
+      ocrArea.value = block.ocrText ?? "";
+      ocrArea.addEventListener("click", (e) => e.stopPropagation());
+      ocrArea.addEventListener("input", () => {
+        const ocrText = ocrArea.value;
+        this.patchBlock(block.id, {
+          ocrText,
+          searchPatternInImage: extractSearchTokensFromText(ocrText),
+        });
+      });
+      card.append(ocrLabel, ocrArea);
+
+      const tokens = block.searchPatternInImage ?? [];
+      if (tokens.length > 0) {
+        const tokenHint = document.createElement("div");
+        tokenHint.className = "pce-image-ocr-tokens";
+        tokenHint.title = tokens.join(", ");
+        tokenHint.textContent = `${tokens.length} search token${tokens.length === 1 ? "" : "s"}`;
+        card.append(tokenHint);
       }
     } else if (block.type === "table") {
       const tableBlock = block as PdfTableBlock;

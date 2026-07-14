@@ -39,8 +39,14 @@ export interface PdfImageBlock extends PdfBlockBase {
   type: "image";
   width: number;
   height: number;
-  /** PNG data URL for preview / markdown embedding. */
+  /** Compressed preview / markdown embedding (WebP/JPEG data URL). */
   dataUrl?: string;
+  /** Full text found in the image region (PDF text layer / OCR). */
+  ocrText?: string;
+  /**
+   * Search tokens from `ocrText` (same role as annadata-app `search_pattern_in_image`).
+   */
+  searchPatternInImage?: string[];
 }
 
 export interface PdfQaPart {

@@ -17,7 +17,12 @@ export {
 } from "./pdf-blocks-storage.js";
 export { extractFormSegmentsFromWords } from "./extract-form-segments.js";
 export { pageToWords } from "./mupdf-words.js";
-export { processBlockRegionFromPdf } from "./pdf-block-region-processor.js";
+export {
+  processBlockRegionFromPdf,
+  extractTextInBboxFromPdf,
+  extractImageRegionTextFromPdf,
+  extractSearchTokensFromText,
+} from "./pdf-block-region-processor.js";
 export { asQaBlock, isQaSegment, qaPartsToContent } from "./pdf-qa.js";
 export type { PdfQaBlock, PdfQaPart } from "./pdf-block-types.js";
 export { renderPdfPageDataUrl, type PageRenderInfo } from "./pdf-page-renderer.js";

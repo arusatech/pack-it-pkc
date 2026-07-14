@@ -8,6 +8,28 @@ import { tableRowsToMarkdown } from "./pdf-blocks-to-markdown.js";
 import { asQaBlock, isQaSegment, qaPart, qaPartsToContent } from "./pdf-qa.js";
 import type { PdfPageLike, PdfWord } from "./pdf-word-types.js";
 
+const MAX_IMAGE_SEARCH_TOKENS = 80;
+
+/** Tokenise OCR / PDF text for image search (annadata-app SegmentProcessor). */
+export function extractSearchTokensFromText(rawText: string): string[] {
+  if (!rawText.trim()) return [];
+
+  const tokens = rawText
+    .split(/[\s,;:.!?()[\]{}"'`|\\/<>@#$%^&*+=~]+/)
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length >= 3 && !/^\d+$/.test(t) && /[a-z]/i.test(t));
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const t of tokens) {
+    if (!seen.has(t)) {
+      seen.add(t);
+      unique.push(t);
+    }
+    if (unique.length >= MAX_IMAGE_SEARCH_TOKENS) break;
+  }
+  return unique;
+}
 /** Keep words with horizontal overlap and at least half their height inside the bbox. */
 function wordOverlapsBbox(word: PdfWord, bbox: PdfBBox, minVerticalOverlap = 0.5): boolean {
   const bx0 = bbox.x;
@@ -92,17 +114,16 @@ export function processBlockRegionFromPdf(
     return null;
   }
 
-  const doc = mupdf.Document.openDocument(pdfBytes, "application/pdf");
-  try {
-    const page = doc.loadPage(block.page);
-    try {
-      const pageWords = pageToWords(page);
-      const region = filterWordsInBbox(pageWords, block.bbox);
-      const lines = wordsToLines(region.words);
-      const text = lines.join("\n").trim();
+  const text = extractTextInBboxFromPdf(pdfBytes, block.page, block.bbox);
 
-      const wantTable = block.type === "table" || block.segmentTag === "table";
-      if (wantTable) {
+  const wantTable = block.type === "table" || block.segmentTag === "table";
+  if (wantTable) {
+    const doc = mupdf.Document.openDocument(pdfBytes, "application/pdf");
+    try {
+      const page = doc.loadPage(block.page);
+      try {
+        const pageWords = pageToWords(page);
+        const region = filterWordsInBbox(pageWords, block.bbox);
         const segments = extractFormSegmentsFromWords(region);
         const tables = (segments ?? []).filter((s) => s.type === "table");
         const tableSeg = largestOverlapSegment(tables, block.bbox);
@@ -115,65 +136,100 @@ export function processBlockRegionFromPdf(
           };
           return tablePatch;
         }
+      } finally {
+        page.destroy();
       }
+    } finally {
+      doc.destroy();
+    }
+  }
 
-      const content = text || block.content;
+  const content = text || block.content;
 
-      if (block.type === "qa" || isQaSegment(block)) {
-        const qa = block.type === "qa" ? block : asQaBlock(block);
-        const questionContent = text || qa.question.content;
-        const qaPatch: Partial<PdfQaBlock> = {
-          type: "qa",
-          segmentTag: "qa",
-          question: qaPart(questionContent),
-          answer: qa.answer,
-          content: qaPartsToContent(questionContent, qa.answer.content),
-        };
-        return qaPatch;
-      }
+  if (block.type === "qa" || isQaSegment(block)) {
+    const qa = block.type === "qa" ? block : asQaBlock(block);
+    const questionContent = text || qa.question.content;
+    const qaPatch: Partial<PdfQaBlock> = {
+      type: "qa",
+      segmentTag: "qa",
+      question: qaPart(questionContent),
+      answer: qa.answer,
+      content: qaPartsToContent(questionContent, qa.answer.content),
+    };
+    return qaPatch;
+  }
 
-      if (block.segmentTag === "formula") {
-        const plain = text.trim() || stripFormulaPlaceholder(block.content);
-        const mhchem = plain
-          ? plainChemistryToMhchem(plain)
-          : "(formula — no text found; edit manually)";
-        const formulaPatch: Partial<PdfTextBlock> = {
-          type: "text",
-          segmentTag: "formula",
-          contentFormat: "mhchem",
-          content: mhchem,
-          lines: mhchem.split("\n"),
-        };
-        return formulaPatch;
-      }
+  if (block.segmentTag === "formula") {
+    const plain = text.trim() || stripFormulaPlaceholder(block.content);
+    const mhchem = plain
+      ? plainChemistryToMhchem(plain)
+      : "(formula — no text found; edit manually)";
+    const formulaPatch: Partial<PdfTextBlock> = {
+      type: "text",
+      segmentTag: "formula",
+      contentFormat: "mhchem",
+      content: mhchem,
+      lines: mhchem.split("\n"),
+    };
+    return formulaPatch;
+  }
 
-      if (block.segmentTag === "math") {
-        const plain = text.trim() || stripMathPlaceholder(block.content);
-        const latex = plain
-          ? plainMathToLatex(plain, plain.length > 60)
-          : "(math — no text found; edit manually)";
-        const mathPatch: Partial<PdfTextBlock> = {
-          type: "text",
-          segmentTag: "math",
-          contentFormat: "latex",
-          content: latex,
-          lines: latex.split("\n"),
-        };
-        return mathPatch;
-      }
+  if (block.segmentTag === "math") {
+    const plain = text.trim() || stripMathPlaceholder(block.content);
+    const latex = plain
+      ? plainMathToLatex(plain, plain.length > 60)
+      : "(math — no text found; edit manually)";
+    const mathPatch: Partial<PdfTextBlock> = {
+      type: "text",
+      segmentTag: "math",
+      contentFormat: "latex",
+      content: latex,
+      lines: latex.split("\n"),
+    };
+    return mathPatch;
+  }
 
-      const textPatch: Partial<PdfTextBlock> = {
-        type: block.type === "heading" || block.type === "list" ? block.type : "text",
-        content,
-        lines: content.split("\n"),
-      };
-      return textPatch;
+  const textPatch: Partial<PdfTextBlock> = {
+    type: block.type === "heading" || block.type === "list" ? block.type : "text",
+    content,
+    lines: content.split("\n"),
+  };
+  return textPatch;
+}
+
+/** Extract PDF text-layer words inside a page bbox (used for image OCR-from-PDF). */
+export function extractTextInBboxFromPdf(
+  pdfBytes: Uint8Array,
+  pageIndex: number,
+  bbox: PdfBBox,
+): string {
+  const doc = mupdf.Document.openDocument(pdfBytes, "application/pdf");
+  try {
+    if (pageIndex < 0 || pageIndex >= doc.countPages()) return "";
+    const page = doc.loadPage(pageIndex);
+    try {
+      const pageWords = pageToWords(page);
+      const region = filterWordsInBbox(pageWords, bbox);
+      return wordsToLines(region.words).join("\n").trim();
     } finally {
       page.destroy();
     }
   } finally {
     doc.destroy();
   }
+}
+
+/** Image-region text + search tokens from the PDF text layer. */
+export function extractImageRegionTextFromPdf(
+  pdfBytes: Uint8Array,
+  pageIndex: number,
+  bbox: PdfBBox,
+): { ocrText: string; searchPatternInImage: string[] } {
+  const ocrText = extractTextInBboxFromPdf(pdfBytes, pageIndex, bbox);
+  return {
+    ocrText,
+    searchPatternInImage: extractSearchTokensFromText(ocrText),
+  };
 }
 
 function stripFormulaPlaceholder(content: string): string {

@@ -42,8 +42,9 @@ function renderBlock(block: PdfBlock): string {
     }
     case "image": {
       const alt = block.content.trim() || "image";
-      if (block.dataUrl) return `![${alt}](${block.dataUrl})`;
-      return `![${alt}]()`;
+      const markdown = block.dataUrl ? `![${alt}](${block.dataUrl})` : `![${alt}]()`;
+      const ocr = block.ocrText?.trim();
+      return ocr ? `${markdown}\n\n${ocr}` : markdown;
     }
     case "qa": {
       const qa = block as PdfQaBlock;

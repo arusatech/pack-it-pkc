@@ -1,6 +1,9 @@
 /**
- * Download GGUF models to OPFS (PWA), Capacitor Filesystem (native), or ~/.cache/pack-it-pkc/models (Node).
- * No hard dependency on llama-cpp-capacitor / @capacitor/filesystem.
+ * Download GGUF models to:
+ * - Electron: `<os.tmpdir()>/AcharyaAnnadata/models` via `window.acharyaFs`
+ * - Node: same tmpdir path
+ * - Capacitor native: `@capacitor/filesystem` Data dir (or `targetPath`)
+ * - Browser PWA: OPFS
  */
 
 import { getModelById, modelUrlForId } from "./model-catalog.js";
@@ -25,10 +28,10 @@ export type DownloadModelOptions = {
   /** Override catalog URL if the app wants a custom GGUF. */
   url?: string;
   /**
-   * Storage backend. `auto` picks OPFS (PWA/browser), Capacitor Filesystem (native),
-   * or Node cache. Hosts can force a backend or pass `targetPath` for a custom file.
+   * Storage backend. `auto` picks Electron Acharya FS, OPFS, Capacitor, or Node.
+   * Hosts can force a backend or pass `targetPath` for a custom file.
    */
-  storage?: "auto" | "opfs" | "capacitor" | "node";
+  storage?: "auto" | "opfs" | "capacitor" | "node" | "acharya";
   /**
    * Absolute native path (or Capacitor URI) for the GGUF file.
    * When set, download writes here and returns this path for `loadModel`.
@@ -38,9 +41,23 @@ export type DownloadModelOptions = {
 
 const MODELS_DIR = "models";
 const MANIFEST_NAME = "manifest.json";
-const NODE_CACHE_DIR = "pack-it-pkc/models";
+/** Folder name under OS temp — shared by Electron + Node downloads. */
+export const ACHARYA_DOWNLOADS_DIR_NAME = "AcharyaAnnadata";
 
 type ManifestMap = Record<string, DownloadedModelInfo>;
+
+type AcharyaFsBridge = {
+  getRootDir: () => Promise<string>;
+  exists: (relativePath: string) => Promise<boolean>;
+  readText: (relativePath: string) => Promise<string | null>;
+  writeText: (relativePath: string, text: string) => Promise<void>;
+  unlink: (relativePath: string) => Promise<void>;
+  downloadUrl: (
+    url: string,
+    relativePath: string,
+    onProgress?: (progress: DownloadProgress) => void,
+  ) => Promise<{ path: string; sizeBytes: number }>;
+};
 
 function sanitizeModelId(modelId: string): string {
   return modelId.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -61,6 +78,33 @@ function isNodeRuntime(): boolean {
 function isCapacitorNative(): boolean {
   const cap = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
   return typeof cap?.isNativePlatform === "function" && cap.isNativePlatform();
+}
+
+/** Electron (or host) bridge that writes under `<tmpdir>/AcharyaAnnadata/`. */
+export function getAcharyaFsBridge(): AcharyaFsBridge | null {
+  const bridge = (globalThis as { acharyaFs?: AcharyaFsBridge }).acharyaFs;
+  if (!bridge || typeof bridge.getRootDir !== "function" || typeof bridge.downloadUrl !== "function") {
+    return null;
+  }
+  return bridge;
+}
+
+/** Absolute downloads root when Electron bridge or Node APIs are available. */
+export async function getAcharyaDownloadsRoot(): Promise<string> {
+  const bridge = getAcharyaFsBridge();
+  if (bridge) return bridge.getRootDir();
+  if (isNodeRuntime()) {
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { mkdir } = await import("node:fs/promises");
+    const root =
+      process.platform === "win32"
+        ? join(tmpdir(), ACHARYA_DOWNLOADS_DIR_NAME)
+        : join("/tmp", ACHARYA_DOWNLOADS_DIR_NAME);
+    await mkdir(root, { recursive: true });
+    return root;
+  }
+  throw new Error("Acharya downloads root requires Electron acharyaFs or Node.js.");
 }
 
 type CapacitorFilesystem = {
@@ -127,6 +171,70 @@ async function writeStreamToSink(
   }
   if (total) onProgress?.({ loaded: written, total, percentage: 100 });
   return written;
+}
+
+// ── Electron Acharya FS (`<tmpdir>/AcharyaAnnadata`) ────────────────────────
+
+async function readAcharyaManifest(fs: AcharyaFsBridge): Promise<ManifestMap> {
+  try {
+    const text = await fs.readText(`${MODELS_DIR}/${MANIFEST_NAME}`);
+    if (!text?.trim()) return {};
+    return JSON.parse(text) as ManifestMap;
+  } catch {
+    return {};
+  }
+}
+
+async function writeAcharyaManifest(fs: AcharyaFsBridge, map: ManifestMap): Promise<void> {
+  await fs.writeText(`${MODELS_DIR}/${MANIFEST_NAME}`, JSON.stringify(map, null, 2));
+}
+
+async function downloadToAcharyaFs(
+  modelId: string,
+  modelUrl: string,
+  onProgress?: (progress: DownloadProgress) => void,
+): Promise<DownloadedModelInfo> {
+  const fs = getAcharyaFsBridge();
+  if (!fs) throw new Error("acharyaFs bridge is not available");
+
+  const relativePath = pathForModelId(modelId);
+  const manifest = await readAcharyaManifest(fs);
+  const existing = manifest[modelId];
+  if (existing && (await fs.exists(relativePath))) {
+    const updated = { ...existing, lastUsedAt: Date.now() };
+    manifest[modelId] = updated;
+    await writeAcharyaManifest(fs, manifest);
+    onProgress?.({
+      loaded: existing.sizeBytes,
+      total: existing.sizeBytes,
+      percentage: 100,
+    });
+    return updated;
+  }
+
+  const { path, sizeBytes } = await fs.downloadUrl(modelUrl, relativePath, onProgress);
+  const now = Date.now();
+  const entry: DownloadedModelInfo = {
+    modelId,
+    path,
+    sizeBytes,
+    sourceUrl: modelUrl,
+    createdAt: now,
+    lastUsedAt: now,
+  };
+  manifest[modelId] = entry;
+  await writeAcharyaManifest(fs, manifest);
+  return entry;
+}
+
+async function deleteFromAcharyaFs(modelId: string): Promise<void> {
+  const fs = getAcharyaFsBridge();
+  if (!fs) return;
+  const manifest = await readAcharyaManifest(fs);
+  if (!manifest[modelId]) return;
+  await fs.unlink(pathForModelId(modelId)).catch(() => undefined);
+  delete manifest[modelId];
+  await writeAcharyaManifest(fs, manifest);
 }
 
 // ── Browser OPFS ────────────────────────────────────────────────────────────
@@ -379,8 +487,7 @@ async function deleteFromCapacitor(modelId: string): Promise<void> {
   const fs = await tryLoadCapacitorFilesystem();
   if (!fs) return;
   const manifest = await readCapacitorManifest(fs);
-  const entry = manifest[modelId];
-  if (!entry) return;
+  if (!manifest[modelId]) return;
   try {
     await fs.deleteFile({ path: pathForModelId(modelId), directory: fs.Directory.Data });
   } catch {
@@ -390,13 +497,12 @@ async function deleteFromCapacitor(modelId: string): Promise<void> {
   await writeCapacitorManifest(fs, manifest);
 }
 
-// ── Node filesystem ─────────────────────────────────────────────────────────
+// ── Node filesystem → `<tmpdir>/AcharyaAnnadata/models` ─────────────────────
 
 async function nodeCacheDir(): Promise<string> {
-  const { homedir } = await import("node:os");
   const { join } = await import("node:path");
   const { mkdir } = await import("node:fs/promises");
-  const dir = join(homedir(), ".cache", NODE_CACHE_DIR);
+  const dir = join(await getAcharyaDownloadsRoot(), MODELS_DIR);
   await mkdir(dir, { recursive: true });
   return dir;
 }
@@ -425,15 +531,17 @@ async function downloadToNode(
   modelId: string,
   modelUrl: string,
   onProgress?: (progress: DownloadProgress) => void,
+  targetPath?: string,
 ): Promise<DownloadedModelInfo> {
-  const { join } = await import("node:path");
+  const { join, dirname } = await import("node:path");
   const { createWriteStream } = await import("node:fs");
   const { pipeline } = await import("node:stream/promises");
   const { Readable } = await import("node:stream");
+  const { mkdir } = await import("node:fs/promises");
 
   const manifest = await readNodeManifest();
   const existing = manifest[modelId];
-  if (existing) {
+  if (existing && !targetPath) {
     const updated = { ...existing, lastUsedAt: Date.now() };
     manifest[modelId] = updated;
     await writeNodeManifest(manifest);
@@ -456,7 +564,8 @@ async function downloadToNode(
   }
 
   const dir = await nodeCacheDir();
-  const path = join(dir, `${sanitizeModelId(modelId)}.gguf`);
+  const path = targetPath ?? join(dir, `${sanitizeModelId(modelId)}.gguf`);
+  await mkdir(dirname(path), { recursive: true });
   const total = Number(res.headers.get("content-length") ?? 0);
   const fileStream = createWriteStream(path);
   let written = 0;
@@ -492,8 +601,10 @@ async function downloadToNode(
     createdAt: now,
     lastUsedAt: now,
   };
-  manifest[modelId] = entry;
-  await writeNodeManifest(manifest);
+  if (!targetPath) {
+    manifest[modelId] = entry;
+    await writeNodeManifest(manifest);
+  }
   return entry;
 }
 
@@ -531,30 +642,43 @@ export async function downloadModel(
   }
 
   const storage = options.storage ?? "auto";
-  const preferOpfs = storage === "opfs" || (storage === "auto" && isBrowserOpfsAvailable() && !isCapacitorNative());
+  const bridge = getAcharyaFsBridge();
+  const preferAcharya = storage === "acharya" || (storage === "auto" && !!bridge);
+  const preferOpfs =
+    storage === "opfs" ||
+    (storage === "auto" && !bridge && isBrowserOpfsAvailable() && !isCapacitorNative());
   const preferCapacitor =
     storage === "capacitor" ||
-    (storage === "auto" && isCapacitorNative()) ||
-    (storage === "auto" && !!options.targetPath && !isNodeRuntime() && !preferOpfs);
-  const preferNode = storage === "node" || (storage === "auto" && isNodeRuntime());
+    (storage === "auto" && !bridge && isCapacitorNative()) ||
+    (storage === "auto" && !!options.targetPath && !isNodeRuntime() && !preferOpfs && !bridge);
+  const preferNode = storage === "node" || (storage === "auto" && isNodeRuntime() && !bridge);
 
+  if (preferAcharya && bridge) {
+    return downloadToAcharyaFs(modelId, url, options.onProgress);
+  }
   if (preferOpfs && isBrowserOpfsAvailable()) {
     return downloadToOpfs(modelId, url, options.onProgress);
   }
-  if (preferCapacitor || (storage === "auto" && !isNodeRuntime() && (await tryLoadCapacitorFilesystem()))) {
+  if (
+    preferCapacitor ||
+    (storage === "auto" && !isNodeRuntime() && !bridge && (await tryLoadCapacitorFilesystem()))
+  ) {
     return downloadToCapacitor(modelId, url, options.onProgress, options.targetPath);
   }
   if (preferNode && isNodeRuntime()) {
-    return downloadToNode(modelId, url, options.onProgress);
+    return downloadToNode(modelId, url, options.onProgress, options.targetPath);
+  }
+  if (bridge) {
+    return downloadToAcharyaFs(modelId, url, options.onProgress);
   }
   if (isBrowserOpfsAvailable()) {
     return downloadToOpfs(modelId, url, options.onProgress);
   }
   if (isNodeRuntime()) {
-    return downloadToNode(modelId, url, options.onProgress);
+    return downloadToNode(modelId, url, options.onProgress, options.targetPath);
   }
   throw new Error(
-    "downloadModel requires OPFS (PWA), @capacitor/filesystem (native), or Node.js. Pass options.storage / options.targetPath from the host app.",
+    "downloadModel requires Electron acharyaFs, OPFS (PWA), @capacitor/filesystem, or Node.js.",
   );
 }
 
@@ -567,6 +691,8 @@ export async function isModelDownloaded(modelId: string): Promise<boolean> {
 }
 
 export async function listDownloadedModels(): Promise<DownloadedModelInfo[]> {
+  const bridge = getAcharyaFsBridge();
+  if (bridge) return Object.values(await readAcharyaManifest(bridge));
   if (isCapacitorNative()) {
     const fs = await tryLoadCapacitorFilesystem();
     if (fs) return Object.values(await readCapacitorManifest(fs));
@@ -581,6 +707,11 @@ export async function listDownloadedModels(): Promise<DownloadedModelInfo[]> {
 }
 
 export async function getModelLocalPath(modelId: string): Promise<string | null> {
+  const bridge = getAcharyaFsBridge();
+  if (bridge) {
+    const entry = (await readAcharyaManifest(bridge))[modelId];
+    return entry?.path ?? null;
+  }
   if (isCapacitorNative()) {
     const fs = await tryLoadCapacitorFilesystem();
     if (fs) {
@@ -600,6 +731,10 @@ export async function getModelLocalPath(modelId: string): Promise<string | null>
 }
 
 export async function deleteModel(modelId: string): Promise<void> {
+  if (getAcharyaFsBridge()) {
+    await deleteFromAcharyaFs(modelId);
+    return;
+  }
   if (isCapacitorNative()) {
     await deleteFromCapacitor(modelId);
     return;
