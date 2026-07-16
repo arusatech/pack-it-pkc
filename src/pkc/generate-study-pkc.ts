@@ -40,6 +40,7 @@ function buildStats(doc: Omit<PkcStudyDocument, "stats">): PkcStudyStats {
     embeddedChunkCount: doc.chunks.filter((c) => c.embedding.length > 0).length,
     flashCardCount: doc.flashCards.length,
     mcqCount: doc.mcqs.length,
+    gameCount: doc.games.length,
   };
 }
 
@@ -137,6 +138,7 @@ export async function generateStudyPkc(
     chunks,
     flashCards,
     mcqs,
+    games: [],
     models: {
       embedding: usedEmbeddingModel,
       chat: usedChatModel,

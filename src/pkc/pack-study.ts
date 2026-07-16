@@ -1,5 +1,6 @@
 import { gzipSync, gunzipSync } from "fflate";
 import { utf8Decode, utf8Encode } from "../utils/binary.js";
+import { normalizeStudyGames } from "./games/assemble-game.js";
 import { PKC_MAGIC } from "./pack.js";
 import { PKC_STUDY_VERSION, type PkcStudyDocument } from "./study-types.js";
 
@@ -20,6 +21,26 @@ export function packStudyPkc(doc: PkcStudyDocument): Uint8Array {
   return out;
 }
 
+function normalizeStudyDoc(doc: PkcStudyDocument): PkcStudyDocument {
+  if (!Array.isArray(doc.games)) doc.games = [];
+  else doc.games = normalizeStudyGames(doc.games);
+  if (!Array.isArray(doc.flashCards)) doc.flashCards = [];
+  if (!Array.isArray(doc.mcqs)) doc.mcqs = [];
+  if (!doc.stats) {
+    doc.stats = {
+      blockCount: doc.blocks?.length ?? 0,
+      chunkCount: doc.chunks?.length ?? 0,
+      embeddedChunkCount: (doc.chunks ?? []).filter((c) => c.embedding?.length).length,
+      flashCardCount: doc.flashCards.length,
+      mcqCount: doc.mcqs.length,
+      gameCount: doc.games.length,
+    };
+  } else if (typeof doc.stats.gameCount !== "number") {
+    doc.stats.gameCount = doc.games.length;
+  }
+  return doc;
+}
+
 export function unpackStudyPkc(data: Uint8Array): PkcStudyDocument {
   if (data.length < PKC_MAGIC.length + 4) throw new Error("Invalid PKC: too short");
   for (let i = 0; i < PKC_MAGIC.length; i++) {
@@ -32,5 +53,5 @@ export function unpackStudyPkc(data: Uint8Array): PkcStudyDocument {
   if (doc.version !== PKC_STUDY_VERSION) {
     throw new Error(`Not a study PKC v${PKC_STUDY_VERSION} document (got version ${doc.version})`);
   }
-  return doc;
+  return normalizeStudyDoc(doc);
 }

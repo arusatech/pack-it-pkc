@@ -17,11 +17,47 @@ export {
   type RagChunk,
   type FlashCard,
   type Mcq,
+  type StudyGameKind,
+  type StudyGameDifficulty,
+  type StudyGameBridgePermission,
+  type StudyGameAsset,
+  type StudyGameModule,
+  type StudyGameBridge,
+  type StudyGameSpec,
+  type ChessGameSpec,
+  type StudyGame,
+  type StudyGamePlayer,
   type PkcStudyStats,
   type PkcStudyDocument,
 } from "./study-types.js";
 
 export { packStudyPkc, unpackStudyPkc } from "./pack-study.js";
+export {
+  STUDY_GAME_MODULE_VERSION,
+  STUDY_GAME_MAX_DOCUMENT_BYTES,
+  assembleGameDocument,
+  normalizeStudyGame,
+  normalizeStudyGames,
+  resolvePlayableGameHtml,
+  isPlayableStudyGame,
+  type AssembleGameDocumentOptions,
+} from "./games/assemble-game.js";
+export {
+  createChessStudyDocument,
+  createChessStudyPkc,
+  type CreateChessStudyPkcOptions,
+} from "./create-chess-pkc.js";
+export {
+  createCustomStudyDocument,
+  createCustomStudyPkc,
+  type CreateCustomStudyPkcOptions,
+} from "./create-custom-pkc.js";
+export {
+  buildChessCartridgeHtml,
+  buildChessGamePlayer,
+  CHESS_PLAYER_VERSION,
+  type ChessPlayerConfig,
+} from "./games/chess/build-chess-player-html.js";
 export { blocksToStudyDocumentParts } from "./study-from-blocks.js";
 export { chunkStudyBlocks, splitSentences } from "./study-chunk.js";
 export {

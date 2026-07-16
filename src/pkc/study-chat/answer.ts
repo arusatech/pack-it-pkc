@@ -73,6 +73,7 @@ function pkcDocumentToStudyDoc(doc: PkcDocument): PkcStudyDocument {
     chunks,
     flashCards: [],
     mcqs: [],
+    games: [],
     models: { embedding: null, chat: null },
     stats: {
       blockCount: 0,
@@ -80,6 +81,7 @@ function pkcDocumentToStudyDoc(doc: PkcDocument): PkcStudyDocument {
       embeddedChunkCount: 0,
       flashCardCount: 0,
       mcqCount: 0,
+      gameCount: 0,
     },
     warnings: ["Loaded as plain PKC (markdown only) — no flash cards or MCQs."],
   };
