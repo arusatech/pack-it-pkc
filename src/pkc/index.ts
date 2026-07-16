@@ -34,3 +34,27 @@ export {
   type GenerateStudyPkcOptions,
   type GenerateStudyPkcResult,
 } from "./generate-study-pkc.js";
+
+export {
+  loadPkcForChat,
+  answerStudyQuestion,
+  retrieveStudyContext,
+  collectStudySearchChunks,
+  studyBm25,
+  StudyBm25Index,
+  fuseRankedLists,
+  buildStudyRagChatPrompt,
+  extractStudyReplyFromContext,
+  clampStudyChatReply,
+  buildStudyContextFallbackReply,
+  STUDY_CHAT_RAG_CLAMP,
+  STUDY_CHAT_RAG_N_PREDICT,
+  STUDY_CHAT_RAG_STOP,
+  STUDY_CHAT_NO_CONTEXT_FALLBACK,
+  type AnswerStudyQuestionOptions,
+  type AnswerStudyQuestionResult,
+  type StudyRetrieveResult,
+  type StudyRetrieveMode,
+  type RankedChunk,
+  type Bm25Hit,
+} from "./study-chat/index.js";

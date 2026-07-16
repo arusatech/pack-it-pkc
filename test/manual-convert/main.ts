@@ -379,7 +379,7 @@ function updateGgufModelStatus(): void {
   const active = getActiveModelId();
   const providerNote = llmProvider
     ? "LLM provider ready"
-    : "No LLM provider (download still works; AI fix needs llama-cpp-capacitor)";
+    : "No LLM provider (download still works; AI fix needs llama-cpp-pro)";
   ggufModelStatus.textContent = `Selected: ${id} · Active: ${active} · ${providerNote}`;
   ggufDownloadBtn.disabled = ggufDownloading || !id;
   ggufSetActiveBtn.disabled = !id;
@@ -570,7 +570,7 @@ void (async () => {
   setStatus(
     llmProvider
       ? "Add a file to begin · LLM provider ready for AI fix"
-      : "Add a file to begin · download models anytime; AI fix needs llama-cpp-capacitor",
+      : "Add a file to begin · download models anytime; AI fix needs llama-cpp-pro",
   );
 })();
 setStatus("Add a file to begin");

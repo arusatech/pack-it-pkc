@@ -14,11 +14,12 @@ const external = [
   "@kenjiuno/msgreader",
   "youtube-transcript-api-js",
   "music-metadata",
-  "llama-cpp-capacitor",
+  "llama-cpp-pro",
   "@capacitor/filesystem",
   "chardet",
   "cheerio",
   "turndown",
+  "flexsearch",
 ];
 
 export default defineConfig({
@@ -29,12 +30,7 @@ export default defineConfig({
     "assets/manifest": "src/assets/manifest.ts",
   },
   format: ["esm", "cjs"],
-  dts: {
-    // tsup injects baseUrl: "." during DTS bundling (tsup#1388); TS 6.0 deprecates baseUrl.
-    compilerOptions: {
-      ignoreDeprecations: "6.0",
-    },
-  },
+  dts: true,
   clean: true,
   external,
   esbuildOptions(options) {

@@ -15,11 +15,15 @@ export interface CompletionOptions {
   maxTokens?: number;
   temperature?: number;
   stream?: boolean;
+  /** Raw prompt (e.g. LFM2 ChatML). When set, `messages` are ignored. */
+  prompt?: string;
+  /** Stop sequences for completion. */
+  stop?: string[];
 }
 
 /**
  * Platform-agnostic GGUF inference (replaces ONNX/OpenAI for on-device vision & text).
- * Implementation: CapacitorGgufProvider via llama-cpp-capacitor (desktop, iOS, Android, PWA).
+ * Implementation: CapacitorGgufProvider via llama-cpp-pro (desktop, iOS, Android, PWA).
  */
 export interface GgufInferenceProvider {
   readonly platform: "capacitor";

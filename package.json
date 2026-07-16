@@ -1,7 +1,7 @@
 {
   "name": "@annadata/pack-it-pkc",
   "version": "1.0.0",
-  "description": "Convert documents to Markdown and pack into PKC format (MarkItDown JS port with GGUF via llama-cpp-capacitor)",
+  "description": "Convert documents to Markdown and pack into PKC format (MarkItDown JS port with GGUF via llama-cpp-pro)",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -54,7 +54,7 @@
     "pkc",
     "gguf",
     "llama-cpp",
-    "llama-cpp-capacitor",
+    "llama-cpp-pro",
     "markitdown",
     "capacitor",
     "pwa"
@@ -67,6 +67,7 @@
     "fast-xml-parser": "^5.2.5",
     "fflate": "^0.8.2",
     "file-type": "^21.0.0",
+    "flexsearch": "^0.8.212",
     "jszip": "^3.10.1",
     "katex": "^0.17.0",
     "mammoth": "^1.9.0",
@@ -81,13 +82,13 @@
   },
   "peerDependencies": {
     "@capacitor/filesystem": ">=6.0.0",
-    "llama-cpp-capacitor": ">=0.2.0"
+    "llama-cpp-pro": ">=0.2.0"
   },
   "peerDependenciesMeta": {
     "@capacitor/filesystem": {
       "optional": true
     },
-    "llama-cpp-capacitor": {
+    "llama-cpp-pro": {
       "optional": true
     }
   },

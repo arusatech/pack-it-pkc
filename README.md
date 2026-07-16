@@ -2,7 +2,7 @@
 
 Installable TypeScript library: convert documents to Markdown, edit PDF blocks, and pack **PKC** / study PKC (RAG + flash + MCQ).
 
-GGUF inference uses **`llama-cpp-capacitor` only** (desktop, iOS, Android, PWA).
+GGUF inference uses **`llama-cpp-pro` only** (desktop, iOS, Android, PWA).
 
 ## Install
 
@@ -10,7 +10,7 @@ GGUF inference uses **`llama-cpp-capacitor` only** (desktop, iOS, Android, PWA).
 npm install @annadata/pack-it-pkc
 
 # Optional peers (host app)
-npm install llama-cpp-capacitor          # chat / embed / vision
+npm install llama-cpp-pro          # chat / embed / vision
 npm install @capacitor/filesystem       # native model download (iOS/Android/desktop Capacitor)
 ```
 
@@ -131,7 +131,7 @@ src/
 
 - **MuPDF** (`mupdf`) — PDF; AGPL-3.0 (see license note below)
 - **KaTeX CSS** — if using formula/math preview in the editor
-- **`llama-cpp-capacitor`** — AI fix / flash answers / embeddings
+- **`llama-cpp-pro`** — AI fix / flash answers / embeddings
 - **`@capacitor/filesystem`** — native model storage (optional; PWA uses OPFS)
 
 ## Scripts

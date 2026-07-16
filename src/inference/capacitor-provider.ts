@@ -4,49 +4,61 @@ import type {
   GgufInferenceProvider,
   VisionRequest,
 } from "./types.js";
-import { toBase64 } from "../utils/binary.js";
 
-type CapacitorLlama = {
-  initLlama: (opts: {
-    modelPath: string;
-    contextId?: number;
-    embedding?: boolean;
-  }) => Promise<{ contextId: number }>;
-  releaseContext: (opts: { contextId: number }) => Promise<void>;
-  completion: (opts: {
-    contextId: number;
+type LlamaContextLike = {
+  completion: (params: {
     prompt: string;
     n_predict?: number;
     temperature?: number;
-  }) => Promise<{ text: string }>;
-  embedding?: (opts: {
-    contextId: number;
-    text: string;
-  }) => Promise<{ embedding: number[] }>;
-  multimodalCompletion?: (opts: {
-    contextId: number;
-    prompt: string;
-    imagePaths?: string[];
-    imageData?: string[];
-    n_predict?: number;
-  }) => Promise<{ text: string }>;
+    stop?: string[];
+  }) => Promise<{ text?: string; content?: string }>;
+  embedding: (text: string) => Promise<{ embedding: number[] }>;
+  release: () => Promise<void>;
+};
+
+type InitLlamaFn = (
+  params: {
+    model: string;
+    embedding?: boolean;
+    n_ctx?: number;
+    n_gpu_layers?: number;
+    n_batch?: number;
+  },
+  onProgress?: (progress: number) => void,
+) => Promise<LlamaContextLike>;
+
+type LlamaCppModule = {
+  initLlama?: InitLlamaFn;
 };
 
 /**
- * GGUF provider for desktop, iOS, Android, and PWA via llama-cpp-capacitor.
- * Requires peer dependency: llama-cpp-capacitor
+ * GGUF provider for desktop / iOS / Android / PWA via llama-cpp-pro.
+ * Uses the package high-level API: `initLlama({ model })` → LlamaContext.
  */
 export class CapacitorGgufProvider implements GgufInferenceProvider {
   readonly platform = "capacitor" as const;
-  private llama: CapacitorLlama | null = null;
-  private contextId = 0;
+  private initLlama: InitLlamaFn | null = null;
+  private context: LlamaContextLike | null = null;
   private modelPath = "";
   private embeddingMode = false;
 
   static async create(): Promise<CapacitorGgufProvider> {
     const provider = new CapacitorGgufProvider();
-    const mod = await import("llama-cpp-capacitor");
-    provider.llama = (mod.LlamaCpp ?? mod.default ?? mod) as CapacitorLlama;
+    let mod: LlamaCppModule;
+    try {
+      mod = (await import("llama-cpp-pro")) as LlamaCppModule;
+    } catch (err) {
+      throw new Error(
+        `llama-cpp-pro is not installed. Add "llama-cpp-pro": "file:/Users/annadata/Project_A/llama-cpp-pro". (${String(err)})`,
+      );
+    }
+
+    if (typeof mod.initLlama !== "function") {
+      throw new Error(
+        "llama-cpp-pro.initLlama is not a function. Build the local package (npm run build:llama) so dist/esm is present.",
+      );
+    }
+    provider.initLlama = mod.initLlama;
     return provider;
   }
 
@@ -55,69 +67,68 @@ export class CapacitorGgufProvider implements GgufInferenceProvider {
     contextId?: number;
     embedding?: boolean;
   }): Promise<void> {
-    if (!this.llama) throw new Error("CapacitorGgufProvider not initialized. Call create() first.");
+    if (!this.initLlama) {
+      throw new Error("CapacitorGgufProvider not initialized. Call create() first.");
+    }
+    if (this.context) {
+      try {
+        await this.context.release();
+      } catch {
+        /* ignore */
+      }
+      this.context = null;
+    }
+
     this.modelPath = options.modelPath;
     this.embeddingMode = options.embedding === true;
-    const result = await this.llama.initLlama({
-      modelPath: options.modelPath,
-      contextId: options.contextId ?? 0,
+    this.context = await this.initLlama({
+      model: options.modelPath,
       embedding: this.embeddingMode,
+      n_ctx: this.embeddingMode ? 512 : 2048,
+      n_gpu_layers: 99,
+      n_batch: this.embeddingMode ? 512 : 256,
     });
-    this.contextId = result.contextId;
   }
 
-  async unloadModel(contextId?: number): Promise<void> {
-    await this.llama?.releaseContext({ contextId: contextId ?? this.contextId });
+  async unloadModel(_contextId?: number): Promise<void> {
+    if (this.context) {
+      await this.context.release();
+      this.context = null;
+    }
     this.embeddingMode = false;
   }
 
   async complete(messages: ChatMessage[], options?: CompletionOptions): Promise<string> {
-    if (!this.llama) throw new Error("Model not loaded");
+    if (!this.context) throw new Error("Model not loaded");
     if (this.embeddingMode) {
       throw new Error("Current model is loaded in embedding mode; load a chat model for complete().");
     }
-    const prompt = messages.map((m) => `${m.role}: ${m.content}`).join("\n") + "\nassistant:";
-    const result = await this.llama.completion({
-      contextId: this.contextId,
+    const prompt =
+      options?.prompt?.trim() ||
+      messages.map((m) => `${m.role}: ${m.content}`).join("\n") + "\nassistant:";
+    const result = await this.context.completion({
       prompt,
       n_predict: options?.maxTokens ?? 512,
       temperature: options?.temperature ?? 0.7,
+      stop: options?.stop,
     });
-    return result.text;
+    return (result.text ?? result.content ?? "").trim();
   }
 
   async embedText(text: string): Promise<number[]> {
-    if (!this.llama) throw new Error("Model not loaded");
+    if (!this.context) throw new Error("Model not loaded");
     const trimmed = text.trim();
     if (!trimmed) throw new Error("Text is required for embedding.");
-    if (!this.llama.embedding) {
-      throw new Error("llama-cpp-capacitor embedding API is not available in this build.");
-    }
-    const result = await this.llama.embedding({
-      contextId: this.contextId,
-      text: trimmed,
-    });
+    const result = await this.context.embedding(trimmed);
     if (!result?.embedding?.length) throw new Error("Empty embedding from runtime.");
     return result.embedding;
   }
 
-  async describeImage(request: VisionRequest): Promise<string | null> {
-    if (!this.llama?.multimodalCompletion) return null;
-    const base64 = bytesToBase64(request.bytes);
-    const result = await this.llama.multimodalCompletion({
-      contextId: this.contextId,
-      prompt: request.prompt,
-      imageData: [`data:${request.mimeType};base64,${base64}`],
-      n_predict: 512,
-    });
-    return result.text;
+  async describeImage(_request: VisionRequest): Promise<string | null> {
+    return null;
   }
 
   async describeDocument(request: VisionRequest): Promise<string | null> {
     return this.describeImage(request);
   }
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  return toBase64(bytes);
 }

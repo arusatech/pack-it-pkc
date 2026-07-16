@@ -82,7 +82,7 @@ declare module "@capacitor/filesystem" {
   export default Filesystem;
 }
 
-declare module "llama-cpp-capacitor" {
+declare module "llama-cpp-pro" {
   const LlamaCpp: unknown;
   export { LlamaCpp };
   export default LlamaCpp;

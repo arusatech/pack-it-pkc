@@ -1355,7 +1355,7 @@ export class PdfCanvasEditor {
         : "AI fix math";
     aiBtn.title = this.llmProvider
       ? "Refine with the active GGUF chat model"
-      : "Requires an LLM provider (download a chat model and ensure llama-cpp-capacitor is available)";
+      : "Requires an LLM provider (download a chat model and ensure llama-cpp-pro is available)";
     aiBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       void this.aiFixBlock(block.id, area, refreshPreview, aiBtn);
@@ -1381,7 +1381,7 @@ export class PdfCanvasEditor {
 
     if (!this.llmProvider) {
       this.onAssistProgress?.(
-        "No LLM provider — install llama-cpp-capacitor (browser) or pass a GgufInferenceProvider",
+        "No LLM provider — install llama-cpp-pro (browser) or pass a GgufInferenceProvider",
       );
       return;
     }
