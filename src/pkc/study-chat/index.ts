@@ -13,6 +13,7 @@ export {
   buildStudyRagChatPrompt,
   clampStudyChatReply,
   extractStudyReplyFromContext,
+  polishStudyChatReply,
   trimChatRepetition,
 } from "./reply.js";
 export {

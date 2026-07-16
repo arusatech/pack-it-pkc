@@ -2,6 +2,8 @@
  * Study RAG reply helpers — extractive + LFM2 ChatML prompts (annadata studyChatReply).
  */
 
+import { polishStudyChatReply } from "./polish.js";
+
 export const STUDY_CHAT_RAG_MAX_WORDS = 120;
 export const STUDY_CHAT_RAG_MAX_SENTENCES = 5;
 export const STUDY_CHAT_RAG_CLAMP = {
@@ -14,7 +16,8 @@ export const STUDY_CHAT_RAG_SYSTEM_RULES =
   "You are a study assistant. Use ONLY the given passages. " +
   "Copy the relevant sentence(s) verbatim from the passages — do not paraphrase or summarize. " +
   "Include enough surrounding context from the passage to answer the question (up to 4 sentences). " +
-  "No lists, bullets, or headings. Do not prefix answers with passage numbers like [1].";
+  "No lists, bullets, or headings. Do not prefix answers with passage numbers like [1]. " +
+  "Keep normal spaces between English words. Write chemistry as one line, e.g. Zn(s) + Cu2+(aq) -> Zn2+(aq) + Cu(s).";
 
 export const STUDY_CHAT_NO_CONTEXT_RULES =
   "You are a study assistant. No matching passages were found in the loaded study file for this question. " +
@@ -31,8 +34,15 @@ export const STUDY_CHAT_RAG_STOP: string[] = [
   "<|startoftext|>",
 ];
 
+export { polishStudyChatReply } from "./polish.js";
+export {
+  restoreMissingSpaces,
+  joinBrokenIonCharges,
+  stripPassagePrefix,
+} from "./polish.js";
+
 export function trimChatRepetition(text: string): string {
-  const sentences = text.split(/(?<=[.!?])\s+/);
+  const sentences = splitSentencesPreservingMath(text);
   const seen = new Set<string>();
   const out: string[] = [];
   for (const s of sentences) {
@@ -45,6 +55,90 @@ export function trimChatRepetition(text: string): string {
   return out.join(" ").trim() || text.trim();
 }
 
+/** Sentence split that does not break on '.' inside $…$ / $$…$$. */
+function splitSentencesPreservingMath(text: string): string[] {
+  const chunks = text.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+\$)/g);
+  const sentences: string[] = [];
+  let buf = "";
+
+  const flush = () => {
+    const t = buf.trim();
+    if (t) sentences.push(t);
+    buf = "";
+  };
+
+  for (const chunk of chunks) {
+    if (!chunk) continue;
+    if (
+      (chunk.startsWith("$$") && chunk.endsWith("$$")) ||
+      (chunk.startsWith("$") && chunk.endsWith("$") && chunk.length >= 2)
+    ) {
+      buf += chunk;
+      continue;
+    }
+    let i = 0;
+    while (i < chunk.length) {
+      const rest = chunk.slice(i);
+      const m = rest.match(/^[\s\S]*?[.!?](?=\s|$)/);
+      if (m && m[0]) {
+        buf += m[0];
+        flush();
+        i += m[0].length;
+        while (chunk[i] === " ") i++;
+      } else {
+        buf += rest;
+        break;
+      }
+    }
+  }
+  flush();
+  return sentences;
+}
+
+/**
+ * Split into tokens for word-count clamping, keeping $…$ / $$…$$ spans atomic
+ * so we never cut through \\ce{Zn(s) + …}.
+ */
+function tokenizePreservingMath(text: string): string[] {
+  const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^$\n]+\$)/g).filter((p) => p.length > 0);
+  const tokens: string[] = [];
+  for (const part of parts) {
+    if (
+      (part.startsWith("$$") && part.endsWith("$$")) ||
+      (part.startsWith("$") && part.endsWith("$") && part.length >= 2)
+    ) {
+      tokens.push(part);
+      continue;
+    }
+    for (const w of part.split(/\s+/)) {
+      if (w) tokens.push(w);
+    }
+  }
+  return tokens;
+}
+
+/** Drop truncated math left by model/clamp (e.g. "$\\ce{Zn(s) +" with no closing). */
+export function dropIncompleteMath(text: string): string {
+  let s = text.trim();
+  if (!s) return s;
+
+  // Odd number of $ → cut from the last opener
+  if (((s.match(/\$/g) || []).length & 1) === 1) {
+    s = s.slice(0, s.lastIndexOf("$")).trimEnd();
+  }
+
+  // Broken \\ce{ / \\pu{ without closing brace (with or without $)
+  s = s.replace(/\$?\\(?:ce|pu)\{(?:[^{}]|\{[^}]*\})*$/g, "").trimEnd();
+
+  // Orphan opener left at end: "$\\ce{Zn(s) +"
+  s = s.replace(/\$\\(?:ce|pu)\{[^$]*$/g, "").trimEnd();
+
+  // Trailing dangling reaction ops outside math
+  s = s.replace(/\s*(?:\+|<-|->|<->)\s*$/g, "").trimEnd();
+
+  return s.replace(/[ \t]+/g, " ").trim();
+}
+
 export function clampStudyChatReply(
   text: string,
   opts?: { maxSentences?: number; maxWords?: number },
@@ -52,7 +146,7 @@ export function clampStudyChatReply(
   const maxSentences = opts?.maxSentences ?? STUDY_CHAT_RAG_MAX_SENTENCES;
   const maxWords = opts?.maxWords ?? STUDY_CHAT_RAG_MAX_WORDS;
 
-  let t = text.trim().replace(/\s+/g, " ");
+  let t = polishStudyChatReply(text);
   for (const re of [
     /\n\s*\n/,
     /\n\s*(?:\d+[.)]|[-*•])\s/,
@@ -66,28 +160,23 @@ export function clampStudyChatReply(
   }
 
   t = trimChatRepetition(t);
-  const sentences = t.split(/(?<=[.!?])\s+/).filter((s) => s.trim().length > 0);
-  let out = sentences.slice(0, maxSentences).join(" ").trim();
+  let out = splitSentencesPreservingMath(t).slice(0, maxSentences).join(" ").trim();
 
-  const words = out.split(/\s+/).filter(Boolean);
-  if (words.length > maxWords) {
-    out = words.slice(0, maxWords).join(" ");
-    if (!/[.!?]$/.test(out)) out += ".";
-  } else if (out && !/[.!?…]$/.test(out)) {
+  const tokens = tokenizePreservingMath(out);
+  if (tokens.length > maxWords) {
+    out = tokens.slice(0, maxWords).join(" ");
+    // Never end on a half-open math token (atomic tokens shouldn't, but be safe)
+    out = dropIncompleteMath(out);
+    if (!/[.!?…]$/.test(out) && !/\$$/.test(out)) {
+      const lastEnd = Math.max(out.lastIndexOf("."), out.lastIndexOf("!"), out.lastIndexOf("?"));
+      out = lastEnd > 12 ? out.slice(0, lastEnd + 1) : `${out}…`;
+    }
+  } else if (out && !/[.!?…]$/.test(out) && !/\$$/.test(out)) {
     const lastEnd = Math.max(out.lastIndexOf("."), out.lastIndexOf("!"), out.lastIndexOf("?"));
     out = lastEnd > 12 ? out.slice(0, lastEnd + 1) : `${out}…`;
   }
 
-  return out.trim();
-}
-
-export function buildStudyContextFallbackReply(snippets: string[]): string {
-  const best = snippets.find((s) => s.trim().length > 24);
-  if (!best) return STUDY_CHAT_NO_CONTEXT_FALLBACK;
-  const trimmed = best.trim().replace(/\s+/g, " ");
-  const sentences = trimmed.split(/(?<=[.!?])\s+/).filter(Boolean);
-  const quoted = sentences.slice(0, 4).join(" ").trim();
-  return clampStudyChatReply(quoted || trimmed.slice(0, 280), STUDY_CHAT_RAG_CLAMP);
+  return dropIncompleteMath(out);
 }
 
 function normalizeForMatch(text: string): string {
@@ -177,4 +266,13 @@ export function buildStudyRagChatPrompt(userQuery: string, contextSnippets: stri
     "<|im_end|>\n" +
     "<|im_start|>assistant\n"
   );
+}
+
+export function buildStudyContextFallbackReply(snippets: string[]): string {
+  const best = snippets.find((s) => s.trim().length > 24);
+  if (!best) return STUDY_CHAT_NO_CONTEXT_FALLBACK;
+  const trimmed = best.trim().replace(/\s+/g, " ");
+  const sentences = trimmed.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const quoted = sentences.slice(0, 4).join(" ").trim();
+  return clampStudyChatReply(quoted || trimmed.slice(0, 280), STUDY_CHAT_RAG_CLAMP);
 }

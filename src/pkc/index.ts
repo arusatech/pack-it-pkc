@@ -47,6 +47,7 @@ export {
   buildStudyRagChatPrompt,
   extractStudyReplyFromContext,
   clampStudyChatReply,
+  polishStudyChatReply,
   buildStudyContextFallbackReply,
   STUDY_CHAT_RAG_CLAMP,
   STUDY_CHAT_RAG_N_PREDICT,

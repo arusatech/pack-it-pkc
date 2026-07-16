@@ -6,7 +6,7 @@ import katex from "katex";
 import renderMathInElement from "katex/contrib/auto-render";
 import "katex/contrib/mhchem";
 
-import { wrapMhchemBlocksInMathDelimiters } from "./chemistry-normalize.js";
+import { wrapMhchemBlocksInMathDelimiters, stripSpuriousChemistryWraps } from "./chemistry-normalize.js";
 
 export interface RenderMathOptions {
   displayMode?: boolean;
@@ -79,15 +79,21 @@ export function containsMathOrChemistry(text: string): boolean {
 
 /**
  * Prepare formula / math for KaTeX auto-render.
- * Do not use study-card prose wrapping here — it breaks \\ce{…} blocks.
+ * Shared by Blocks formula preview and study/chat rendering.
  */
 export function prepareContentForAutoRender(text: string): string {
   let trimmed = text.trim();
   if (!trimmed) return "";
 
   trimmed = trimmed.replace(/\\ce\s*\{/g, "\\ce{").replace(/\\pu\s*\{/g, "\\pu{");
+  // Drop prose wrongly wrapped in \\ce{…} (and unclosed \\ce{).
+  trimmed = stripSpuriousChemistryWraps(trimmed);
 
   if (/\$[^$\n]+\$/.test(trimmed) && !/^\$[^$]+\$$/.test(trimmed)) {
+    // Mixed prose + already-delimited math — only ensure \\ce/\\pu are $-wrapped.
+    if (/\\ce\{|\\pu\{/.test(trimmed)) {
+      return wrapMhchemBlocksInMathDelimiters(trimmed);
+    }
     return trimmed;
   }
 
@@ -107,7 +113,15 @@ export function prepareContentForAutoRender(text: string): string {
     return wrapMhchemBlocksInMathDelimiters(trimmed);
   }
 
-  if ((/\^{|_\{/.test(trimmed) || /\\frac|\\sqrt/.test(trimmed)) && !/\$/.test(trimmed)) {
+  // Whole-string math only for short formula-like content (not prose with a ^{…}).
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  if (
+    wordCount <= 8 &&
+    trimmed.length <= 80 &&
+    (/\^{|_\{|\\frac|\\sqrt/.test(trimmed)) &&
+    !/\b(the|and|when|such|called|equal|concentration|electrical|device)\b/i.test(trimmed) &&
+    !/\$/.test(trimmed)
+  ) {
     return `$${trimmed}$`;
   }
 

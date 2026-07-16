@@ -186,6 +186,10 @@ export class PdfCanvasEditor {
   private tagMenuEl!: HTMLElement;
   private blockPanel!: HTMLElement;
   private pageLabel!: HTMLElement;
+  private resizeObserver: ResizeObserver | null = null;
+  private lastRenderWidth = 0;
+  private renderGeneration = 0;
+  private resizeRaf = 0;
 
   constructor(options: PdfCanvasEditorOptions) {
     this.container = options.container;
@@ -207,7 +211,11 @@ export class PdfCanvasEditor {
 
   private async bootstrap(): Promise<void> {
     this.normalizeQaBlocks();
-    await this.renderCurrentPage();
+    await this.renderCurrentPage(true);
+    // Second pass after layout (Blocks panel may still be settling flex widths).
+    requestAnimationFrame(() => {
+      void this.renderCurrentPage();
+    });
   }
 
   private normalizeQaBlocks(): void {
@@ -255,6 +263,13 @@ export class PdfCanvasEditor {
   }
 
   destroy(): void {
+    this.renderGeneration++;
+    if (this.resizeRaf) {
+      cancelAnimationFrame(this.resizeRaf);
+      this.resizeRaf = 0;
+    }
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     this.container.innerHTML = "";
   }
 
@@ -281,13 +296,15 @@ export class PdfCanvasEditor {
         this.currentPage--;
         this.closeTagMenu();
         this.selectedId = null;
-        void this.renderCurrentPage();
+        this.lastRenderWidth = 0;
+        void this.renderCurrentPage(true);
       }
       if (btn.dataset.nav === "next" && this.currentPage < this.doc.pageCount - 1) {
         this.currentPage++;
         this.closeTagMenu();
         this.selectedId = null;
-        void this.renderCurrentPage();
+        this.lastRenderWidth = 0;
+        void this.renderCurrentPage(true);
       }
     });
 
@@ -336,10 +353,15 @@ export class PdfCanvasEditor {
       this.tagMenuEl,
     );
 
-    const resizeObserver = new ResizeObserver(() => {
-      void this.renderCurrentPage();
+    // Debounced + width-threshold: scrollbar/layout feedback must not re-render forever.
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.resizeRaf) cancelAnimationFrame(this.resizeRaf);
+      this.resizeRaf = requestAnimationFrame(() => {
+        this.resizeRaf = 0;
+        void this.renderCurrentPage();
+      });
     });
-    resizeObserver.observe(this.wrapRef);
+    this.resizeObserver.observe(this.wrapRef);
 
     canvasCol.append(this.wrapRef);
 
@@ -354,24 +376,36 @@ export class PdfCanvasEditor {
     this.updatePageNav();
   }
 
-  private async renderCurrentPage(): Promise<void> {
-    const width = Math.max(320, this.wrapRef.clientWidth - 4);
-    if (width < 10) {
-      requestAnimationFrame(() => void this.renderCurrentPage());
+  private async renderCurrentPage(force = false): Promise<void> {
+    // Prefer laid-out width. If the Blocks panel is still hidden / not measured,
+    // wait for ResizeObserver instead of spinning RAF forever.
+    const measured = Math.floor(this.wrapRef.clientWidth);
+    if (measured < 40) {
       return;
     }
 
+    const width = Math.max(320, measured - 4);
+    // Ignore tiny width jitter (scrollbar appearing/disappearing).
+    if (!force && this.lastRenderWidth > 0 && Math.abs(width - this.lastRenderWidth) < 12) {
+      this.syncBlockPanelHeight();
+      return;
+    }
+
+    const gen = ++this.renderGeneration;
+    this.lastRenderWidth = width;
     this.pageImg.style.opacity = "0.5";
     try {
       const { dataUrl, info } = renderPdfPageDataUrl(this.pdfBytes, this.currentPage, width);
+      if (gen !== this.renderGeneration) return;
       this.renderInfo = info;
       this.pageImg.src = dataUrl;
       this.applyPageColorFilter();
       await this.waitForPageImage();
+      if (gen !== this.renderGeneration) return;
     } catch (err) {
       console.error("[PdfCanvasEditor] page render failed", err);
     } finally {
-      this.pageImg.style.opacity = "1";
+      if (gen === this.renderGeneration) this.pageImg.style.opacity = "1";
     }
     this.updatePageNav();
     this.renderBlockPanel();
