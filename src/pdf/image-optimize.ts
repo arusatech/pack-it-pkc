@@ -1,21 +1,25 @@
 /**
- * Compact tagged-region images: optional denoise / background cleanup + WebP/JPEG encode.
- * Adapted from annadata-app `rasterRegionEnhance` + `rasterImageEncode` (Canvas 2D, no OpenCV).
+ * Compact tagged-region images: trim margins, refine edges, denoise, WebP/JPEG encode.
+ * Adapted from annadata-app `rasterRegionEnhance` + sharper region crops.
  */
 
 export type ImageEnhanceMode = "document" | "photo" | "auto";
 
 export interface OptimizeRasterOptions {
-  /** Enhancement mode. `document` = B&W Otsu (smallest); `photo` = keep colour, bleach background. */
+  /** Enhancement mode. `document` = B&W Otsu; `photo` = keep colour, bleach background. */
   mode?: ImageEnhanceMode;
   /** Prefer colour when mode is `auto` (maps to photo). Default false → document. */
   colorMode?: boolean;
-  /** Max edge length in px before uniform downscale (default 1600). */
+  /** Max edge length in px before uniform downscale (default 2000 for sharper figures). */
   maxEdge?: number;
-  /** WebP quality 0–1 (default 0.78). */
+  /** WebP quality 0–1 (default 0.88). */
   webpQuality?: number;
-  /** JPEG fallback quality 0–1 (default 0.82). */
+  /** JPEG fallback quality 0–1 (default 0.9). */
   jpegQuality?: number;
+  /** Auto-crop near-white margins (default true). */
+  trimMargins?: boolean;
+  /** Sharpen / morphologically clean edges after enhance (default true). */
+  refineEdges?: boolean;
 }
 
 function otsuThreshold(grey: Uint8Array): number {
@@ -126,6 +130,160 @@ function applyPhotoMode(imageData: ImageData): ImageData {
   return new ImageData(out, width, height);
 }
 
+/** Crop away near-white margins so figure edges sit cleanly in the frame. */
+function trimContentMargins(imageData: ImageData, pad = 4): ImageData {
+  const { data, width, height } = imageData;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const r = data[i]!;
+      const g = data[i + 1]!;
+      const b = data[i + 2]!;
+      // Near-white paper / watermark margin
+      if (r > 248 && g > 248 && b > 248) continue;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  if (maxX < minX || maxY < minY) return imageData;
+
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(width - 1, maxX + pad);
+  maxY = Math.min(height - 1, maxY + pad);
+  const tw = maxX - minX + 1;
+  const th = maxY - minY + 1;
+  if (tw >= width - 2 && th >= height - 2) return imageData;
+
+  const out = new Uint8ClampedArray(tw * th * 4);
+  for (let y = 0; y < th; y++) {
+    for (let x = 0; x < tw; x++) {
+      const si = ((minY + y) * width + (minX + x)) * 4;
+      const di = (y * tw + x) * 4;
+      out[di] = data[si]!;
+      out[di + 1] = data[si + 1]!;
+      out[di + 2] = data[si + 2]!;
+      out[di + 3] = data[si + 3]!;
+    }
+  }
+  return new ImageData(out, tw, th);
+}
+
+/**
+ * Document: morphological open (drop speckles) then close (solidify stroke edges).
+ * Photo: mild unsharp mask for crisper figure boundaries.
+ */
+function refineEdges(imageData: ImageData, mode: ImageEnhanceMode): ImageData {
+  if (mode === "photo") return unsharpMask(imageData, 0.45);
+  return morphOpenCloseBinary(imageData);
+}
+
+function morphOpenCloseBinary(imageData: ImageData): ImageData {
+  const { width, height, data } = imageData;
+  const ink = new Uint8Array(width * height);
+  for (let i = 0; i < ink.length; i++) {
+    ink[i] = data[i * 4]! < 128 ? 1 : 0;
+  }
+
+  const erode = (src: Uint8Array): Uint8Array => {
+    const dst = new Uint8Array(src.length);
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        let keep = 1;
+        for (let dy = -1; dy <= 1 && keep; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!src[(y + dy) * width + (x + dx)]!) {
+              keep = 0;
+              break;
+            }
+          }
+        }
+        dst[y * width + x] = keep;
+      }
+    }
+    return dst;
+  };
+
+  const dilate = (src: Uint8Array): Uint8Array => {
+    const dst = new Uint8Array(src.length);
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        let any = 0;
+        for (let dy = -1; dy <= 1 && !any; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (src[(y + dy) * width + (x + dx)]!) {
+              any = 1;
+              break;
+            }
+          }
+        }
+        dst[y * width + x] = any;
+      }
+    }
+    return dst;
+  };
+
+  // Open then close
+  let m = dilate(erode(ink));
+  m = erode(dilate(m));
+
+  const out = new Uint8ClampedArray(width * height * 4);
+  for (let i = 0; i < m.length; i++) {
+    const v = m[i]! ? 0 : 255;
+    out[i * 4] = v;
+    out[i * 4 + 1] = v;
+    out[i * 4 + 2] = v;
+    out[i * 4 + 3] = 255;
+  }
+  return new ImageData(out, width, height);
+}
+
+function unsharpMask(imageData: ImageData, amount: number): ImageData {
+  const { width, height, data } = imageData;
+  const blurred = boxBlur3(data, width, height);
+  const out = new Uint8ClampedArray(data.length);
+  for (let i = 0; i < data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const src = data[i + c]!;
+      const blur = blurred[i + c]!;
+      out[i + c] = Math.max(0, Math.min(255, Math.round(src + amount * (src - blur))));
+    }
+    out[i + 3] = 255;
+  }
+  return new ImageData(out, width, height);
+}
+
+function boxBlur3(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(data.length);
+  out.set(data);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            sum += data[((y + dy) * width + (x + dx)) * 4 + c]!;
+          }
+        }
+        out[(y * width + x) * 4 + c] = Math.round(sum / 9);
+      }
+    }
+  }
+  return out;
+}
+
 function readBlobAsDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const fr = new FileReader();
@@ -140,8 +298,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number)
 }
 
 /**
- * Downscale + denoise/bleach background + encode as WebP (JPEG fallback) for small storage.
- * Returns original PNG data URL from canvas.toDataURL if encode fails.
+ * Downscale + trim margins + refine edges + encode as WebP (JPEG fallback).
  */
 export async function optimizeImageCanvasToDataUrl(
   source: HTMLCanvasElement,
@@ -149,9 +306,11 @@ export async function optimizeImageCanvasToDataUrl(
 ): Promise<{ dataUrl: string; width: number; height: number }> {
   const mode: ImageEnhanceMode =
     options.mode ?? (options.colorMode ? "photo" : "document");
-  const maxEdge = options.maxEdge ?? 1600;
-  const webpQ = options.webpQuality ?? 0.78;
-  const jpegQ = options.jpegQuality ?? 0.82;
+  const maxEdge = options.maxEdge ?? 2000;
+  const webpQ = options.webpQuality ?? 0.88;
+  const jpegQ = options.jpegQuality ?? 0.9;
+  const trimMargins = options.trimMargins !== false;
+  const doRefine = options.refineEdges !== false;
 
   let width = source.width;
   let height = source.height;
@@ -177,13 +336,24 @@ export async function optimizeImageCanvasToDataUrl(
     };
   }
 
+  // High-quality resampling when downscaling from hi-DPI PDF crop.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.drawImage(source, 0, 0, width, height);
 
   try {
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const enhanced =
-      mode === "photo" ? applyPhotoMode(imageData) : applyDocumentMode(imageData);
-    ctx.putImageData(enhanced, 0, 0);
+    let imageData = ctx.getImageData(0, 0, width, height);
+    imageData = mode === "photo" ? applyPhotoMode(imageData) : applyDocumentMode(imageData);
+    if (trimMargins) imageData = trimContentMargins(imageData, 6);
+    if (doRefine) imageData = refineEdges(imageData, mode);
+
+    if (imageData.width !== canvas.width || imageData.height !== canvas.height) {
+      canvas.width = imageData.width;
+      canvas.height = imageData.height;
+      width = imageData.width;
+      height = imageData.height;
+    }
+    ctx.putImageData(imageData, 0, 0);
   } catch (err) {
     console.warn("[image-optimize] enhance skipped", err);
   }

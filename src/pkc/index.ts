@@ -40,6 +40,7 @@ export {
   answerStudyQuestion,
   retrieveStudyContext,
   collectStudySearchChunks,
+  resolveStudyChatImages,
   studyBm25,
   StudyBm25Index,
   fuseRankedLists,
@@ -55,6 +56,7 @@ export {
   type AnswerStudyQuestionResult,
   type StudyRetrieveResult,
   type StudyRetrieveMode,
+  type StudyChatImage,
   type RankedChunk,
   type Bm25Hit,
 } from "./study-chat/index.js";

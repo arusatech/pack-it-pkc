@@ -11,6 +11,7 @@ import { unpackPkc, type PkcDocument } from "../pack.js";
 import { unpackStudyPkc } from "../pack-study.js";
 import { PKC_STUDY_VERSION, type PkcStudyDocument, type RagChunk } from "../study-types.js";
 import { retrieveStudyContext } from "./retrieve.js";
+import { resolveStudyChatImages, type StudyChatImage } from "./images.js";
 import {
   STUDY_CHAT_NO_CONTEXT_FALLBACK,
   STUDY_CHAT_RAG_CLAMP,
@@ -120,6 +121,8 @@ export interface AnswerStudyQuestionResult {
   text: string;
   mode: "extractive" | "generative" | "fallback" | "no-context";
   retrievalMode: string;
+  /** Diagrams from Study PKC image blocks related to retrieved passages. */
+  images?: StudyChatImage[];
 }
 
 /**
@@ -134,11 +137,13 @@ export async function answerStudyQuestion(
     return { text: "", mode: "no-context", retrievalMode: "none" };
   }
 
-  const { snippets, mode: retrievalMode } = await retrieveStudyContext(opts.doc, q, {
+  const { snippets, ranked, mode: retrievalMode } = await retrieveStudyContext(opts.doc, q, {
     provider: opts.provider,
     useVectors: opts.useVectors,
     onStatus: opts.onStatus,
   });
+
+  const images = resolveStudyChatImages(opts.doc, ranked);
 
   if (!snippets.length) {
     return {
@@ -148,17 +153,20 @@ export async function answerStudyQuestion(
     };
   }
 
+  const withImages = <T extends AnswerStudyQuestionResult>(result: T): T =>
+    images.length ? { ...result, images } : result;
+
   const extractive = extractStudyReplyFromContext(q, snippets);
   if (extractive) {
-    return { text: extractive, mode: "extractive", retrievalMode };
+    return withImages({ text: extractive, mode: "extractive", retrievalMode });
   }
 
   if (!opts.provider) {
-    return {
+    return withImages({
       text: buildStudyContextFallbackReply(snippets),
       mode: "fallback",
       retrievalMode,
-    };
+    });
   }
 
   const chatModelId = opts.chatModelId || getActiveModelId();
@@ -189,19 +197,19 @@ export async function answerStudyQuestion(
     }
 
     if (!cleaned) {
-      return {
+      return withImages({
         text: buildStudyContextFallbackReply(snippets),
         mode: "fallback",
         retrievalMode,
-      };
+      });
     }
 
-    return { text: cleaned, mode: "generative", retrievalMode };
+    return withImages({ text: cleaned, mode: "generative", retrievalMode });
   } catch {
-    return {
+    return withImages({
       text: buildStudyContextFallbackReply(snippets),
       mode: "fallback",
       retrievalMode,
-    };
+    });
   }
 }

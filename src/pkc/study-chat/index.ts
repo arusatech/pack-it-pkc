@@ -22,6 +22,10 @@ export {
   type StudyRetrieveResult,
 } from "./retrieve.js";
 export {
+  resolveStudyChatImages,
+  type StudyChatImage,
+} from "./images.js";
+export {
   loadPkcForChat,
   answerStudyQuestion,
   type AnswerStudyQuestionOptions,

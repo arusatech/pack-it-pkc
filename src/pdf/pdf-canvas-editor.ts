@@ -22,7 +22,7 @@ import { containsMathOrChemistry, mountFormulaPreview } from "./katex-service.js
 import { llmPlainToMhchem } from "./chemistry-llm-assist.js";
 import { llmPlainToLatex } from "./math-llm-assist.js";
 import { collapseNewlinesToSpaces, WRAP_TOGGLE_ICON_SVG } from "./pdf-block-text-wrap.js";
-import { renderPdfPageDataUrl, type PageRenderInfo } from "./pdf-page-renderer.js";
+import { renderPdfBboxToCanvas, renderPdfPageDataUrl, type PageRenderInfo } from "./pdf-page-renderer.js";
 import { optimizeImageCanvasToDataUrl } from "./image-optimize.js";
 import type { GgufInferenceProvider } from "../inference/types.js";
 import { getActiveModelId } from "../inference/model-session.js";
@@ -515,9 +515,7 @@ export class PdfCanvasEditor {
 
     try {
       if (block.type === "image" || block.segmentTag === "image") {
-        const optimized = await this.cropSelectionToOptimizedDataUrl(
-          this.bboxToSelectionRect(block.bbox),
-        );
+        const optimized = await this.cropBboxToOptimizedDataUrl(block.page, block.bbox);
         // Same idea as annadata-app SegmentProcessor: keep raster + searchable text.
         const { ocrText, searchPatternInImage } = extractImageRegionTextFromPdf(
           this.pdfBytes,
@@ -828,23 +826,38 @@ export class PdfCanvasEditor {
     return canvas;
   }
 
-  /** Crop region → denoise/bleach background → WebP/JPEG (small on disk). */
-  private async cropSelectionToOptimizedDataUrl(
-    sel: SelectionRect,
+  /**
+   * Hi-DPI MuPDF re-render of the PDF bbox → trim margins / refine edges → WebP/JPEG.
+   * Falls back to cropping the on-screen preview if the PDF region render fails.
+   */
+  private async cropBboxToOptimizedDataUrl(
+    pageIndex: number,
+    bbox: PdfBBox,
   ): Promise<{ dataUrl: string; width: number; height: number } | undefined> {
-    const canvas = this.cropSelectionToCanvas(sel);
+    let canvas: HTMLCanvasElement | undefined;
+    try {
+      canvas = renderPdfBboxToCanvas(this.pdfBytes, pageIndex, bbox, {
+        maxEdge: 2000,
+        maxZoom: 4,
+      });
+    } catch (err) {
+      console.warn("[PdfCanvasEditor] hi-DPI PDF crop failed, using screen raster", err);
+      canvas = this.cropSelectionToCanvas(this.bboxToSelectionRect(bbox));
+    }
     if (!canvas) return undefined;
     try {
       return await optimizeImageCanvasToDataUrl(canvas, {
         colorMode: this.imageColorMode,
-        maxEdge: 1600,
-        webpQuality: 0.78,
-        jpegQuality: 0.82,
+        maxEdge: 2000,
+        webpQuality: 0.9,
+        jpegQuality: 0.92,
+        trimMargins: true,
+        refineEdges: true,
       });
     } catch (err) {
       console.warn("[PdfCanvasEditor] image optimize failed, using jpeg fallback", err);
       return {
-        dataUrl: canvas.toDataURL("image/jpeg", 0.82),
+        dataUrl: canvas.toDataURL("image/jpeg", 0.92),
         width: canvas.width,
         height: canvas.height,
       };
