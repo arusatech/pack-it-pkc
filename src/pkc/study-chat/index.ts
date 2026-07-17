@@ -32,3 +32,4 @@ export {
   type AnswerStudyQuestionOptions,
   type AnswerStudyQuestionResult,
 } from "./answer.js";
+export { formatStudyHtml } from "./format-html.js";

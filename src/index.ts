@@ -23,6 +23,7 @@ export {
   FileConversionError,
 } from "./types/exceptions.js";
 export { ByteStream } from "./utils/byte-stream.js";
+export { basename, extname } from "./utils/path-name.js";
 export {
   extractPdfBlocks,
   extractPdfMarkdown,

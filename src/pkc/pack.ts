@@ -22,6 +22,33 @@ export interface PackOptions {
 }
 
 /**
+ * Pack arbitrary JSON into the PKC binary container
+ * (magic header + uint32 BE length + gzip payload).
+ */
+export function packPkcJson(doc: unknown): Uint8Array {
+  const json = utf8Encode(JSON.stringify(doc));
+  const compressed = gzipSync(json);
+  const out = new Uint8Array(PKC_MAGIC.length + 4 + compressed.length);
+  out.set(PKC_MAGIC, 0);
+  new DataView(out.buffer).setUint32(PKC_MAGIC.length, compressed.length, false);
+  out.set(compressed, PKC_MAGIC.length + 4);
+  return out;
+}
+
+/**
+ * Unpack a PKC binary container to its JSON payload (no schema validation).
+ */
+export function unpackPkcJson(data: Uint8Array): unknown {
+  if (data.length < PKC_MAGIC.length + 4) throw new Error("Invalid PKC: too short");
+  for (let i = 0; i < PKC_MAGIC.length; i++) {
+    if (data[i] !== PKC_MAGIC[i]) throw new Error("Invalid PKC magic header");
+  }
+  const payloadLen = new DataView(data.buffer, data.byteOffset).getUint32(PKC_MAGIC.length, false);
+  const payload = data.subarray(PKC_MAGIC.length + 4, PKC_MAGIC.length + 4 + payloadLen);
+  return JSON.parse(utf8Decode(gunzipSync(payload)));
+}
+
+/**
  * Pack Markdown into PKC binary container (magic header + gzip JSON payload).
  */
 export function packToPkc(markdown: string, options: PackOptions = {}): Uint8Array {
@@ -34,27 +61,11 @@ export function packToPkc(markdown: string, options: PackOptions = {}): Uint8Arr
     metadata: options.metadata ?? {},
     createdAt: new Date().toISOString(),
   };
-
-  const json = utf8Encode(JSON.stringify(doc));
-  const compressed = gzipSync(json);
-
-  const out = new Uint8Array(PKC_MAGIC.length + 4 + compressed.length);
-  out.set(PKC_MAGIC, 0);
-  new DataView(out.buffer).setUint32(PKC_MAGIC.length, compressed.length, false);
-  out.set(compressed, PKC_MAGIC.length + 4);
-  return out;
+  return packPkcJson(doc);
 }
 
 export function unpackPkc(data: Uint8Array): PkcDocument {
-  if (data.length < PKC_MAGIC.length + 4) throw new Error("Invalid PKC: too short");
-  for (let i = 0; i < PKC_MAGIC.length; i++) {
-    if (data[i] !== PKC_MAGIC[i]) throw new Error("Invalid PKC magic header");
-  }
-
-  const payloadLen = new DataView(data.buffer, data.byteOffset).getUint32(PKC_MAGIC.length, false);
-  const payload = data.subarray(PKC_MAGIC.length + 4, PKC_MAGIC.length + 4 + payloadLen);
-  const json = gunzipSync(payload);
-  return JSON.parse(utf8Decode(json)) as PkcDocument;
+  return unpackPkcJson(data) as PkcDocument;
 }
 
 export interface PackAndConvertOptions extends PackOptions {

@@ -1,6 +1,8 @@
 export {
   packToPkc,
   unpackPkc,
+  packPkcJson,
+  unpackPkcJson,
   packIt,
   PKC_MAGIC,
   PKC_VERSION,
@@ -95,6 +97,7 @@ export {
   clampStudyChatReply,
   polishStudyChatReply,
   buildStudyContextFallbackReply,
+  formatStudyHtml,
   STUDY_CHAT_RAG_CLAMP,
   STUDY_CHAT_RAG_N_PREDICT,
   STUDY_CHAT_RAG_STOP,

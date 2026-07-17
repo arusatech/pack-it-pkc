@@ -76,6 +76,14 @@ describe("PKC", () => {
     expect(doc.title).toBe("Doc");
     expect(doc.version).toBe(1);
   });
+
+  it("round-trips packPkcJson/unpackPkcJson for arbitrary payloads", async () => {
+    const { packPkcJson, unpackPkcJson, PKC_MAGIC } = await import("../src/pkc/pack.js");
+    const payload = { version: 99, hello: "world", nested: { a: 1 } };
+    const bytes = packPkcJson(payload);
+    expect(bytes[0]).toBe(PKC_MAGIC[0]);
+    expect(unpackPkcJson(bytes)).toEqual(payload);
+  });
 });
 
 describe("Study PKC", () => {
