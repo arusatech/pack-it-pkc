@@ -53,6 +53,16 @@ export {
   type CreateCustomStudyPkcOptions,
 } from "./create-custom-pkc.js";
 export {
+  createBallSortStudyDocument,
+  createBallSortStudyPkc,
+  type CreateBallSortStudyPkcOptions,
+} from "./create-ball-sort-pkc.js";
+export {
+  buildBallSortModule,
+  BALL_SORT_VERSION,
+  type BallSortConfig,
+} from "./games/ball-sort/build-ball-sort-module.js";
+export {
   buildChessCartridgeHtml,
   buildChessGamePlayer,
   CHESS_PLAYER_VERSION,

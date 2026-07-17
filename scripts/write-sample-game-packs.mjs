@@ -6,7 +6,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createChessStudyPkc, createCustomStudyPkc } from "../dist/index.js";
+import {
+  createBallSortStudyPkc,
+  createChessStudyPkc,
+  createCustomStudyPkc,
+} from "../dist/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const outDir = join(__dirname, "../../../packs");
@@ -81,3 +85,12 @@ button:hover { border-color: var(--accent); }
 });
 writeFileSync(join(outDir, "hello-game.study.pkc"), hello.pkc);
 console.log("wrote packs/hello-game.study.pkc", hello.pkc.byteLength, "bytes");
+
+const ballSort = createBallSortStudyPkc({
+  title: "Ball Sort",
+  source: "packs/ball-sort.study.pkc",
+  level: 1,
+  colors: 4,
+});
+writeFileSync(join(outDir, "ball-sort.study.pkc"), ballSort.pkc);
+console.log("wrote packs/ball-sort.study.pkc", ballSort.pkc.byteLength, "bytes");
