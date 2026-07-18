@@ -73,6 +73,17 @@ export {
   type BallSortConfig,
 } from "./games/ball-sort/build-ball-sort-module.js";
 export {
+  createSudokuStudyDocument,
+  createSudokuStudyPkc,
+  type CreateSudokuStudyPkcOptions,
+} from "./create-sudoku-pkc.js";
+export {
+  buildSudokuModule,
+  SUDOKU_VERSION,
+  type SudokuConfig,
+  type SudokuDifficulty,
+} from "./games/sudoku/build-sudoku-module.js";
+export {
   buildChessCartridgeHtml,
   buildChessGamePlayer,
   CHESS_PLAYER_VERSION,

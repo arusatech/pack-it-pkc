@@ -10,6 +10,7 @@ import {
   createBallSortStudyPkc,
   createChessStudyPkc,
   createCustomStudyPkc,
+  createSudokuStudyPkc,
 } from "../dist/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -94,3 +95,12 @@ const ballSort = createBallSortStudyPkc({
 });
 writeFileSync(join(outDir, "ball-sort.study.pkc"), ballSort.pkc);
 console.log("wrote packs/ball-sort.study.pkc", ballSort.pkc.byteLength, "bytes");
+
+const sudoku = createSudokuStudyPkc({
+  title: "Sudoku",
+  source: "packs/sudoku.study.pkc",
+  level: 1,
+  difficulty: "easy",
+});
+writeFileSync(join(outDir, "sudoku.study.pkc"), sudoku.pkc);
+console.log("wrote packs/sudoku.study.pkc", sudoku.pkc.byteLength, "bytes");
