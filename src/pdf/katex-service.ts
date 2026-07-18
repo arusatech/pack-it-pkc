@@ -140,6 +140,7 @@ export function mountFormulaPreview(
     return;
   }
 
+  // Mixed / delimited math — auto-render in place.
   if (containsMathOrChemistry(prepared) && /\$/.test(prepared)) {
     el.textContent = prepared;
     renderMathInDom(el);
@@ -153,5 +154,14 @@ export function mountFormulaPreview(
     return;
   }
 
-  el.innerHTML = renderToHtml(prepared, opts);
+  // Whole-string \\ce{…} / \\pu{…} (prepare may leave these without $).
+  const bare = prepared.trim();
+  if (/^\\(?:ce|pu)\{[\s\S]*\}$/.test(bare)) {
+    el.innerHTML = renderToHtml(bare, opts);
+    return;
+  }
+
+  // Prose / OCR mistagged as formula — show as text. Never feed to KaTeX
+  // (math mode collapses spaces between words into jammed identifiers).
+  el.innerHTML = escapeHtml(prepared).replace(/\n/g, "<br />");
 }

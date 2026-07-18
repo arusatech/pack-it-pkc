@@ -19,6 +19,7 @@ import {
 import { extractPdfPageBlocks } from "./pdf-extractor.js";
 import { asQaBlock, isQaPlaceholder, isQaSegment, qaPart, qaPartsToContent } from "./pdf-qa.js";
 import { containsMathOrChemistry, mountFormulaPreview } from "./katex-service.js";
+import { looksLikeChemistry } from "./chemistry-normalize.js";
 import { llmPlainToMhchem } from "./chemistry-llm-assist.js";
 import { llmPlainToLatex } from "./math-llm-assist.js";
 import { collapseNewlinesToSpaces, WRAP_TOGGLE_ICON_SVG } from "./pdf-block-text-wrap.js";
@@ -1351,8 +1352,8 @@ export class PdfCanvasEditor {
 
     const refreshPreview = (content: string) => {
       const trimmed = content.trim();
-      // Always show a preview for formula/math tags so OCR plain text is typeset
-      // (wrapped as \\ce{…} / $$…$$), not left looking like a normal text block.
+      // Always show a preview for formula/math tags so OCR plain text is visible,
+      // but only wrap as \\ce{…} / $$…$$ when it actually looks like chemistry/math.
       preview.hidden = !trimmed;
       if (!trimmed) {
         previewBody.innerHTML = "";
@@ -1365,11 +1366,14 @@ export class PdfCanvasEditor {
         /\\ce\{|\\pu\{|\\frac|\\sqrt|\^{|_\{|\$/.test(content);
 
       if (!hasMarkup) {
-        if (block.segmentTag === "formula") {
-          // Plain chemistry / OCR → mhchem for KaTeX preview
+        if (block.segmentTag === "formula" && looksLikeChemistry(trimmed)) {
           forPreview = `\\ce{${trimmed}}`;
-        } else if (block.segmentTag === "math") {
-          forPreview = `$$${trimmed}$$`;
+        } else if (block.segmentTag === "math" && trimmed.length <= 120) {
+          // Short math-like OCR only — long prose stays plain text in the preview.
+          const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+          if (wordCount <= 12 || /[=+\-*/^_{}\\]/.test(trimmed)) {
+            forPreview = `$$${trimmed}$$`;
+          }
         }
       }
 

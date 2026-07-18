@@ -35,6 +35,14 @@ export {
 
 export { packStudyPkc, unpackStudyPkc } from "./pack-study.js";
 export {
+  mergeStudyDocuments,
+  mergeStudyPkcFiles,
+  type MergeStudySource,
+  type MergeStudyDocumentsOptions,
+  type MergeStudyPkcBytesInput,
+  type MergeStudyPkcFilesOptions,
+} from "./merge-study-pkc.js";
+export {
   STUDY_GAME_MODULE_VERSION,
   STUDY_GAME_MAX_DOCUMENT_BYTES,
   assembleGameDocument,
