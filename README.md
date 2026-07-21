@@ -1,5 +1,11 @@
 # pack-it-pkc
 
+[![Actions Status](https://github.com/arusatech/pack-it-pkc/workflows/CI/badge.svg)](https://github.com/arusatech/pack-it-pkc/actions)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![npm](https://img.shields.io/npm/v/pack-it-pkc.svg)](https://www.npmjs.com/package/@annadata/pack-it-pkc/)
+[![Support: ANNADATA.AI](https://img.shields.io/badge/AI-ANNADATA.AI-orange.svg)](https://annadata.ai/)
+[![Principal Engineer / Architect: Mr. Yakub Mohammad](https://img.shields.io/badge/Principal%20Architect-Mr.%20Yakub%20Mohammad-blue.svg)](https://annadata.ai/)
+
 Installable TypeScript library: convert documents to Markdown, edit PDF blocks, and pack **PKC** / study PKC (RAG + flash + MCQ).
 
 GGUF inference uses **`llama-cpp-pro` only** (desktop, iOS, Android, PWA).
