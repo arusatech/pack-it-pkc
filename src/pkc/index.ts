@@ -101,6 +101,15 @@ export {
   type GenerateStudyPkcOptions,
   type GenerateStudyPkcResult,
 } from "./generate-study-pkc.js";
+export {
+  markdownToStudyBlocks,
+  type MarkdownToStudyBlocksOptions,
+} from "./markdown-to-study-blocks.js";
+export {
+  generateStudyPkcFromBytes,
+  type GenerateStudyPkcFromBytesMeta,
+  type GenerateStudyPkcFromBytesOptions,
+} from "./generate-study-pkc-from-bytes.js";
 
 export {
   loadPkcForChat,

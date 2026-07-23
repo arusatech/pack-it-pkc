@@ -1,6 +1,6 @@
 {
   "name": "@annadata/pack-it-pkc",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Convert documents to Markdown and pack into PKC format (MarkItDown JS port with GGUF via llama-cpp-pro)",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -39,6 +39,7 @@
   ],
   "scripts": {
     "build": "tsup && node scripts/copy-plugin-assets.mjs",
+    "embed:chess": "node scripts/embed-chess-js.mjs",
     "prepublishOnly": "npm run build && npm test",
     "dev": "tsup --watch",
     "write:sample-games": "npm run build && node scripts/write-sample-game-packs.mjs",
