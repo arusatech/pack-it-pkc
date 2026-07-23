@@ -1,6 +1,6 @@
 /**
- * Compact tagged-region images: trim margins, refine edges, denoise, WebP/JPEG encode.
- * Adapted from annadata-app `rasterRegionEnhance` + sharper region crops.
+ * Compact tagged-region images: trim margins, sharpen text, encode.
+ * Document regions prefer lossless PNG so glyph edges stay crisp.
  */
 
 export type ImageEnhanceMode = "document" | "photo" | "auto";
@@ -10,16 +10,24 @@ export interface OptimizeRasterOptions {
   mode?: ImageEnhanceMode;
   /** Prefer colour when mode is `auto` (maps to photo). Default false → document. */
   colorMode?: boolean;
-  /** Max edge length in px before uniform downscale (default 2000 for sharper figures). */
+  /** Max edge length in px before uniform downscale (default 3200 for sharper figures). */
   maxEdge?: number;
-  /** WebP quality 0–1 (default 0.88). */
+  /** WebP quality 0–1 when lossy encode is used (default 0.95). */
   webpQuality?: number;
-  /** JPEG fallback quality 0–1 (default 0.9). */
+  /** JPEG fallback quality 0–1 (default 0.95). */
   jpegQuality?: number;
   /** Auto-crop near-white margins (default true). */
   trimMargins?: boolean;
-  /** Sharpen / morphologically clean edges after enhance (default true). */
+  /**
+   * Post-enhance sharpen / clean. For document mode this is a mild unsharp
+   * (morph open/close was dropping thin glyph strokes). Default true.
+   */
   refineEdges?: boolean;
+  /**
+   * Prefer lossless PNG for document/B&W output (default true for document).
+   * Lossy WebP/JPEG softens small text badly.
+   */
+  preferLossless?: boolean;
 }
 
 function otsuThreshold(grey: Uint8Array): number {
@@ -52,7 +60,60 @@ function otsuThreshold(grey: Uint8Array): number {
   return threshold;
 }
 
-/** Greyscale + Otsu → clean B&W (removes light watermarks / paper noise). */
+/** Stretch greyscale so ink / paper use the full 0–255 range (helps faint PDF text). */
+function stretchGrey(grey: Uint8Array): Uint8Array {
+  let min = 255;
+  let max = 0;
+  for (let i = 0; i < grey.length; i++) {
+    const v = grey[i]!;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  const range = max - min || 1;
+  // Ignore nearly flat images
+  if (range < 8) return grey;
+  const out = new Uint8Array(grey.length);
+  for (let i = 0; i < grey.length; i++) {
+    out[i] = Math.round(((grey[i]! - min) / range) * 255);
+  }
+  return out;
+}
+
+/**
+ * Unsharp on greyscale buffer (amount typically 0.5–1.0).
+ * Applied before Otsu so soft anti-aliased glyphs become crisper ink.
+ */
+function unsharpGrey(grey: Uint8Array, width: number, height: number, amount: number): Uint8Array {
+  const blurred = boxBlurGrey(grey, width, height);
+  const out = new Uint8Array(grey.length);
+  for (let i = 0; i < grey.length; i++) {
+    const v = grey[i]! + amount * (grey[i]! - blurred[i]!);
+    out[i] = Math.max(0, Math.min(255, Math.round(v)));
+  }
+  return out;
+}
+
+function boxBlurGrey(grey: Uint8Array, width: number, height: number): Uint8Array {
+  const out = new Uint8Array(grey.length);
+  out.set(grey);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      let sum = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          sum += grey[(y + dy) * width + (x + dx)]!;
+        }
+      }
+      out[y * width + x] = Math.round(sum / 9);
+    }
+  }
+  return out;
+}
+
+/**
+ * Greyscale → contrast stretch → mild unsharp → Otsu B&W.
+ * Keeps thin strokes; does not morphologically erode glyphs.
+ */
 function applyDocumentMode(imageData: ImageData): ImageData {
   const { data, width, height } = imageData;
   const n = width * height;
@@ -63,10 +124,15 @@ function applyDocumentMode(imageData: ImageData): ImageData {
     const b = data[i * 4 + 2]!;
     grey[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
   }
-  const thresh = otsuThreshold(grey);
+
+  const stretched = stretchGrey(grey);
+  const sharp = unsharpGrey(stretched, width, height, 0.85);
+  // Bias threshold slightly toward white so faint anti-aliased edges stay ink.
+  const thresh = Math.min(250, otsuThreshold(sharp) + 8);
+
   const out = new Uint8ClampedArray(n * 4);
   for (let i = 0; i < n; i++) {
-    const v = grey[i]! > thresh ? 255 : 0;
+    const v = sharp[i]! > thresh ? 255 : 0;
     out[i * 4] = v;
     out[i * 4 + 1] = v;
     out[i * 4 + 2] = v;
@@ -109,7 +175,7 @@ function applyPhotoMode(imageData: ImageData): ImageData {
     const b = Math.round(((data[i * 4 + 2]! - bMin) / bRange) * 255);
     lumaArr[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
   }
-  const bgThresh = otsuThreshold(lumaArr);
+  const bgThresh = Math.min(250, otsuThreshold(lumaArr) + 6);
 
   const out = new Uint8ClampedArray(n * 4);
   for (let i = 0; i < n; i++) {
@@ -178,70 +244,37 @@ function trimContentMargins(imageData: ImageData, pad = 4): ImageData {
 }
 
 /**
- * Document: morphological open (drop speckles) then close (solidify stroke edges).
- * Photo: mild unsharp mask for crisper figure boundaries.
+ * Document: light unsharp on binary edges (no morph — morph ate thin text).
+ * Photo: stronger unsharp for figure boundaries.
  */
 function refineEdges(imageData: ImageData, mode: ImageEnhanceMode): ImageData {
-  if (mode === "photo") return unsharpMask(imageData, 0.45);
-  return morphOpenCloseBinary(imageData);
+  if (mode === "photo") return unsharpMask(imageData, 0.55);
+  // Binary document: optional 1px ink cleanup only (remove isolated speckles).
+  return removeIsolatedInkSpeckles(imageData);
 }
 
-function morphOpenCloseBinary(imageData: ImageData): ImageData {
+/** Drop lone black pixels that are fully surrounded by white (noise), keep strokes. */
+function removeIsolatedInkSpeckles(imageData: ImageData): ImageData {
   const { width, height, data } = imageData;
-  const ink = new Uint8Array(width * height);
-  for (let i = 0; i < ink.length; i++) {
-    ink[i] = data[i * 4]! < 128 ? 1 : 0;
-  }
-
-  const erode = (src: Uint8Array): Uint8Array => {
-    const dst = new Uint8Array(src.length);
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        let keep = 1;
-        for (let dy = -1; dy <= 1 && keep; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (!src[(y + dy) * width + (x + dx)]!) {
-              keep = 0;
-              break;
-            }
-          }
+  const out = new Uint8ClampedArray(data);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = (y * width + x) * 4;
+      if (data[i]! >= 128) continue; // already white
+      let whiteN = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          if (data[((y + dy) * width + (x + dx)) * 4]! >= 128) whiteN++;
         }
-        dst[y * width + x] = keep;
+      }
+      // Only wipe truly isolated speckles (all 8 neighbors white)
+      if (whiteN === 8) {
+        out[i] = 255;
+        out[i + 1] = 255;
+        out[i + 2] = 255;
       }
     }
-    return dst;
-  };
-
-  const dilate = (src: Uint8Array): Uint8Array => {
-    const dst = new Uint8Array(src.length);
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        let any = 0;
-        for (let dy = -1; dy <= 1 && !any; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (src[(y + dy) * width + (x + dx)]!) {
-              any = 1;
-              break;
-            }
-          }
-        }
-        dst[y * width + x] = any;
-      }
-    }
-    return dst;
-  };
-
-  // Open then close
-  let m = dilate(erode(ink));
-  m = erode(dilate(m));
-
-  const out = new Uint8ClampedArray(width * height * 4);
-  for (let i = 0; i < m.length; i++) {
-    const v = m[i]! ? 0 : 255;
-    out[i * 4] = v;
-    out[i * 4 + 1] = v;
-    out[i * 4 + 2] = v;
-    out[i * 4 + 3] = 255;
   }
   return new ImageData(out, width, height);
 }
@@ -298,7 +331,8 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number)
 }
 
 /**
- * Downscale + trim margins + refine edges + encode as WebP (JPEG fallback).
+ * Enhance + optionally downscale + encode.
+ * Document mode defaults to lossless PNG so text stays sharp.
  */
 export async function optimizeImageCanvasToDataUrl(
   source: HTMLCanvasElement,
@@ -306,11 +340,12 @@ export async function optimizeImageCanvasToDataUrl(
 ): Promise<{ dataUrl: string; width: number; height: number }> {
   const mode: ImageEnhanceMode =
     options.mode ?? (options.colorMode ? "photo" : "document");
-  const maxEdge = options.maxEdge ?? 2000;
-  const webpQ = options.webpQuality ?? 0.88;
-  const jpegQ = options.jpegQuality ?? 0.9;
+  const maxEdge = options.maxEdge ?? 3200;
+  const webpQ = options.webpQuality ?? 0.95;
+  const jpegQ = options.jpegQuality ?? 0.95;
   const trimMargins = options.trimMargins !== false;
   const doRefine = options.refineEdges !== false;
+  const preferLossless = options.preferLossless ?? mode !== "photo";
 
   let width = source.width;
   let height = source.height;
@@ -318,7 +353,8 @@ export async function optimizeImageCanvasToDataUrl(
     return { dataUrl: source.toDataURL("image/png"), width, height };
   }
 
-  if (width > maxEdge || height > maxEdge) {
+  const needsDownscale = width > maxEdge || height > maxEdge;
+  if (needsDownscale) {
     const s = Math.min(maxEdge / width, maxEdge / height);
     width = Math.max(1, Math.floor(width * s));
     height = Math.max(1, Math.floor(height * s));
@@ -330,21 +366,25 @@ export async function optimizeImageCanvasToDataUrl(
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) {
     return {
-      dataUrl: source.toDataURL("image/jpeg", jpegQ),
+      dataUrl: source.toDataURL(preferLossless ? "image/png" : "image/jpeg", jpegQ),
       width: source.width,
       height: source.height,
     };
   }
 
-  // High-quality resampling when downscaling from hi-DPI PDF crop.
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
+  // High-quality resample only when we must shrink; otherwise 1:1 copy.
+  if (needsDownscale) {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+  } else {
+    ctx.imageSmoothingEnabled = false;
+  }
   ctx.drawImage(source, 0, 0, width, height);
 
   try {
     let imageData = ctx.getImageData(0, 0, width, height);
     imageData = mode === "photo" ? applyPhotoMode(imageData) : applyDocumentMode(imageData);
-    if (trimMargins) imageData = trimContentMargins(imageData, 6);
+    if (trimMargins) imageData = trimContentMargins(imageData, 4);
     if (doRefine) imageData = refineEdges(imageData, mode);
 
     if (imageData.width !== canvas.width || imageData.height !== canvas.height) {
@@ -356,6 +396,23 @@ export async function optimizeImageCanvasToDataUrl(
     ctx.putImageData(imageData, 0, 0);
   } catch (err) {
     console.warn("[image-optimize] enhance skipped", err);
+  }
+
+  // Lossless PNG for document/B&W — lossy codecs blur small glyph edges.
+  if (preferLossless) {
+    try {
+      const png = await canvasToBlob(canvas, "image/png");
+      if (png && png.size > 0) {
+        return { dataUrl: await readBlobAsDataUrl(png), width, height };
+      }
+    } catch (err) {
+      console.warn("[image-optimize] png encode skipped", err);
+    }
+    return {
+      dataUrl: canvas.toDataURL("image/png"),
+      width,
+      height,
+    };
   }
 
   try {
@@ -372,7 +429,7 @@ export async function optimizeImageCanvasToDataUrl(
   }
 
   return {
-    dataUrl: canvas.toDataURL("image/jpeg", jpegQ),
+    dataUrl: canvas.toDataURL("image/png"),
     width,
     height,
   };

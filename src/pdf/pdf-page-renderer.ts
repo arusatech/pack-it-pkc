@@ -58,9 +58,10 @@ export function renderPdfBboxToCanvas(
   bbox: { x: number; y: number; w: number; h: number },
   opts?: { maxEdge?: number; maxZoom?: number },
 ): HTMLCanvasElement {
-  const maxEdge = opts?.maxEdge ?? 2000;
-  const maxZoom = opts?.maxZoom ?? 4;
-  const zoom = Math.min(maxZoom, Math.max(2, maxEdge / Math.max(bbox.w, bbox.h, 1)));
+  const maxEdge = opts?.maxEdge ?? 4096;
+  const maxZoom = opts?.maxZoom ?? 5;
+  // Prefer at least 3× (annadata IMAGE_BASE_ZOOM) so small-body text stays legible.
+  const zoom = Math.min(maxZoom, Math.max(3, maxEdge / Math.max(bbox.w, bbox.h, 1)));
   const w = Math.max(1, Math.ceil(bbox.w * zoom));
   const h = Math.max(1, Math.ceil(bbox.h * zoom));
 

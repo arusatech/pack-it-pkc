@@ -161,15 +161,24 @@ export function processBlockRegionFromPdf(
 
   if (block.segmentTag === "formula") {
     const plain = text.trim() || stripFormulaPlaceholder(block.content);
-    const mhchem = plain
+    const normalized = plain
       ? plainChemistryToMhchem(plain)
       : "(formula — no text found; edit manually)";
+    // Prose mistagged as formula → mixed (ions wrapped); pure formula → mhchem.
+    const contentFormat: PdfTextBlock["contentFormat"] =
+      !plain
+        ? "mhchem"
+        : /^\\ce\{[\s\S]*\}$/.test(normalized.trim())
+          ? "mhchem"
+          : /\\ce\{|\$/.test(normalized)
+            ? "mixed"
+            : "plain";
     const formulaPatch: Partial<PdfTextBlock> = {
       type: "text",
       segmentTag: "formula",
-      contentFormat: "mhchem",
-      content: mhchem,
-      lines: mhchem.split("\n"),
+      contentFormat,
+      content: normalized,
+      lines: normalized.split("\n"),
     };
     return formulaPatch;
   }
@@ -235,6 +244,13 @@ export function extractImageRegionTextFromPdf(
 function stripFormulaPlaceholder(content: string): string {
   const t = content.trim();
   if (!t || t === "$$\\cdots$$" || t === "Formula" || t === "\\ce{}") return "";
+  // Re-process: unwrap mistaken whole-paragraph \\ce{…} so we can re-normalize.
+  if (t.startsWith("\\ce{") && t.endsWith("}")) {
+    const inner = t.slice(4, -1);
+    if (inner.length > 80 || /\b(the|and|when|such|called|equal|concentration)\b/i.test(inner)) {
+      return inner;
+    }
+  }
   return t;
 }
 

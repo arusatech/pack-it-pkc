@@ -97,9 +97,9 @@
 
 .pce-selection-rect {
   position: absolute;
-  border: 2px dashed var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-radius: 2px;
+  border: 1px dashed var(--accent, #3880ff);
+  background: color-mix(in srgb, var(--accent, #3880ff) 12%, transparent);
+  border-radius: 1px;
   pointer-events: none;
   z-index: 8;
 }
@@ -589,6 +589,9 @@
   margin-top: 0.4rem;
   border-radius: 6px;
   border: 1px solid var(--border);
+  /* Keep B&W document text crisp when CSS-scaled in the panel */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
 }
 
 .pce-image-ocr-label {

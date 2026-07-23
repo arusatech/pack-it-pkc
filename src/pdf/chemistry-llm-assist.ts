@@ -8,6 +8,9 @@ import { getActiveModelId, ensureModelReady } from "../inference/model-session.j
 import {
   extractCeFromLlmResponse,
   isLowConfidenceNormalization,
+  isMostlyProse,
+  isRealChemistryFormula,
+  normalizeChemistryInText,
   plainChemistryToMhchem,
 } from "./chemistry-normalize.js";
 
@@ -66,12 +69,26 @@ export async function normalizeChemistryWithAssist(
   provider?: GgufInferenceProvider | null,
   opts: ChemistryLlmAssistOptions = {},
 ): Promise<string> {
-  const ruled = plainChemistryToMhchem(plain);
-  if (!opts.loadModelIfNeeded && !isLowConfidenceNormalization(plain, ruled)) {
+  const trimmed = plain.trim();
+  // Prose paragraphs must never become a single \\ce{…} blob.
+  if (trimmed && isMostlyProse(trimmed) && !isRealChemistryFormula(trimmed)) {
+    return normalizeChemistryInText(trimmed);
+  }
+
+  const ruled = plainChemistryToMhchem(trimmed);
+  if (!opts.loadModelIfNeeded && !isLowConfidenceNormalization(trimmed, ruled)) {
     return ruled;
   }
   if (!provider) return ruled;
 
-  const llm = await llmPlainToMhchem(plain, provider, opts);
-  return llm ?? ruled;
+  const llm = await llmPlainToMhchem(trimmed, provider, opts);
+  if (llm) {
+    // Guard LLM: if it wraps prose, keep rule-based mixed output.
+    const inner = llm.startsWith("\\ce{") && llm.endsWith("}") ? llm.slice(4, -1) : llm;
+    if (isMostlyProse(inner) || !isRealChemistryFormula(inner)) {
+      return ruled.startsWith("\\ce{") ? normalizeChemistryInText(trimmed) : ruled;
+    }
+    return llm;
+  }
+  return ruled;
 }

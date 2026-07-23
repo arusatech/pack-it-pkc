@@ -6,7 +6,7 @@ import katex from "katex";
 import renderMathInElement from "katex/contrib/auto-render";
 import "katex/contrib/mhchem";
 
-import { wrapMhchemBlocksInMathDelimiters, stripSpuriousChemistryWraps } from "./chemistry-normalize.js";
+import { wrapMhchemBlocksInMathDelimiters, stripSpuriousChemistryWraps, normalizeChemistryInText } from "./chemistry-normalize.js";
 
 export interface RenderMathOptions {
   displayMode?: boolean;
@@ -88,6 +88,10 @@ export function prepareContentForAutoRender(text: string): string {
   trimmed = trimmed.replace(/\\ce\s*\{/g, "\\ce{").replace(/\\pu\s*\{/g, "\\pu{");
   // Drop prose wrongly wrapped in \\ce{…} (and unclosed \\ce{).
   trimmed = stripSpuriousChemistryWraps(trimmed);
+  // After unwrap, promote bare ions / units in remaining prose for preview.
+  if (!/^\\ce\{/.test(trimmed.trim()) && /(?:\^{|[A-Z][a-z]?\d*[+-])/.test(trimmed)) {
+    trimmed = normalizeChemistryInText(trimmed);
+  }
 
   if (/\$[^$\n]+\$/.test(trimmed) && !/^\$[^$]+\$$/.test(trimmed)) {
     // Mixed prose + already-delimited math — only ensure \\ce/\\pu are $-wrapped.

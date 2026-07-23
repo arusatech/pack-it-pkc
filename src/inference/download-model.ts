@@ -92,7 +92,9 @@ export function getAcharyaFsBridge(): AcharyaFsBridge | null {
   return bridge;
 }
 
-/** Absolute downloads root when Electron bridge or Node APIs are available. */
+/** Absolute downloads root when Electron bridge or Node APIs are available.
+ *  Models live under `<tmpdir>/AcharyaAnnadata/models`.
+ */
 export async function getAcharyaDownloadsRoot(): Promise<string> {
   const bridge = getAcharyaFsBridge();
   if (bridge) return bridge.getRootDir();
@@ -104,7 +106,7 @@ export async function getAcharyaDownloadsRoot(): Promise<string> {
       process.platform === "win32"
         ? join(tmpdir(), ACHARYA_DOWNLOADS_DIR_NAME)
         : join("/tmp", ACHARYA_DOWNLOADS_DIR_NAME);
-    await mkdir(root, { recursive: true });
+    await mkdir(join(root, MODELS_DIR), { recursive: true });
     return root;
   }
   throw new Error("Acharya downloads root requires Electron acharyaFs or Node.js.");
@@ -320,6 +322,25 @@ async function ensureOpfsFileHandle(path: string): Promise<FileSystemFileHandle>
   return current.getFileHandle(fileName, { create: true });
 }
 
+/** Resolve an existing OPFS file without creating an empty placeholder. */
+async function getExistingOpfsFile(path: string): Promise<File | null> {
+  try {
+    const root = await getOpfsRoot();
+    const parts = path.split("/").filter(Boolean);
+    const fileName = parts.pop();
+    if (!fileName) return null;
+    let current: FileSystemDirectoryHandle = root;
+    for (const dir of parts) {
+      current = await current.getDirectoryHandle(dir, { create: false });
+    }
+    const handle = await current.getFileHandle(fileName, { create: false });
+    const file = await handle.getFile();
+    return file.size > 0 ? file : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readOpfsManifest(): Promise<ManifestMap> {
   try {
     const root = await getOpfsRoot();
@@ -351,6 +372,34 @@ async function downloadToOpfs(
   onProgress?: (progress: DownloadProgress) => void,
 ): Promise<DownloadedModelInfo> {
   const manifest = await readOpfsManifest();
+  const path = pathForModelId(modelId);
+
+  // Reuse file already in OPFS (e.g. downloaded earlier by LlamaService) even without our manifest.
+  {
+    const file = await getExistingOpfsFile(path);
+    if (file) {
+      const now = Date.now();
+      const previous = manifest[modelId];
+      const entry: DownloadedModelInfo = {
+        modelId,
+        path,
+        sizeBytes: file.size,
+        sourceUrl: modelUrl ?? previous?.sourceUrl,
+        createdAt: previous?.createdAt ?? now,
+        lastUsedAt: now,
+        cached: true,
+      };
+      manifest[modelId] = entry;
+      await writeOpfsManifest(manifest);
+      onProgress?.({
+        loaded: entry.sizeBytes,
+        total: entry.sizeBytes,
+        percentage: 100,
+      });
+      return entry;
+    }
+  }
+
   const existing = manifest[modelId];
   if (existing) {
     const updated = { ...existing, lastUsedAt: Date.now() };
@@ -374,7 +423,6 @@ async function downloadToOpfs(
     throw new Error(`Failed to download model '${modelId}': HTTP ${res.status}`);
   }
 
-  const path = pathForModelId(modelId);
   const fileHandle = await ensureOpfsFileHandle(path);
   const writable = await fileHandle.createWritable();
   let sizeBytes = 0;
@@ -843,7 +891,11 @@ export async function getModelLocalPath(modelId: string): Promise<string | null>
   }
   if (isBrowserOpfsAvailable()) {
     const entry = (await readOpfsManifest())[modelId];
-    return entry?.path ?? null;
+    if (entry?.path) return entry.path;
+    // File may exist from LlamaService without pack-it manifest.
+    const file = await getExistingOpfsFile(pathForModelId(modelId));
+    if (file) return pathForModelId(modelId);
+    return null;
   }
   if (isNodeRuntime()) {
     const { join } = await import("node:path");

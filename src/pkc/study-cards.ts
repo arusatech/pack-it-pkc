@@ -5,7 +5,10 @@ import type { FlashCard, Mcq, StudyBlock } from "./study-types.js";
 export type StudyCardProgress = (message: string) => void;
 
 function trimAnswer(text: string, maxWords = 14): string {
-  const words = text.replaceAll(/\s+/g, " ").trim().split(" ");
+  const cleaned = text.replaceAll(/\s+/g, " ").trim();
+  // Keep chemistry / math markup intact — word-trim would chop \\ce{…}.
+  if (/\\ce\{|\\pu\{|\$/.test(cleaned) && cleaned.length <= 220) return cleaned;
+  const words = cleaned.split(" ");
   if (words.length <= maxWords) return words.join(" ");
   return words.slice(0, maxWords).join(" ");
 }

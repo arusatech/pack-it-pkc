@@ -3,7 +3,8 @@ import {
   DEFAULT_OFFLINE_MODEL_ID,
   LFM2_CHAT_MODEL_ID,
 } from "../inference/model-catalog.js";
-import { ensureEmbeddingModelReady, ensureModelReady, getActiveModelId } from "../inference/model-session.js";
+import { ensureEmbeddingModelReady, ensureModelReady, getActiveModelId, getLoadedModelId } from "../inference/model-session.js";
+import { explainModelFailure } from "../inference/model-errors.js";
 import type { PdfDocumentBlocks } from "../pdf/pdf-block-types.js";
 import { packStudyPkc } from "./pack-study.js";
 import { generateFlashCards, generateMcqsFromFlashCards } from "./study-cards.js";
@@ -25,6 +26,16 @@ export type GenerateStudyPkcOptions = {
   onProgress?: (message: string) => void;
   generateFlashMcq?: boolean;
   generateEmbeddings?: boolean;
+  /**
+   * When true, download/load the chat GGUF for LLM flash answers.
+   * Default false — LFM2 is ~700MB and can stall load for many minutes;
+   * rule-based flashcards are used instead unless the chat model is already loaded.
+   */
+  loadChatModelIfNeeded?: boolean;
+  /** Max ms to wait for chat model load when loadChatModelIfNeeded (default 120s). */
+  chatModelLoadTimeoutMs?: number;
+  /** Max ms to wait for embedding model load (default 180s). */
+  embeddingModelLoadTimeoutMs?: number;
 };
 
 export type GenerateStudyPkcResult = {
@@ -44,6 +55,24 @@ function buildStats(doc: Omit<PkcStudyDocument, "stats">): PkcStudyStats {
   };
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`));
+    }, ms);
+    promise.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(t);
+        reject(err);
+      },
+    );
+  });
+}
+
 /**
  * Build a self-contained study PKC (blocks + RAG chunks/embeddings + flash + MCQ).
  * Always returns a valid document; missing models produce warnings and empty vectors/cards as needed.
@@ -59,6 +88,10 @@ export async function generateStudyPkc(
   const embeddingModelId = options.embeddingModelId ?? DEFAULT_OFFLINE_MODEL_ID;
   const llm = options.llmProvider ?? null;
   const embedProvider = options.embeddingProvider ?? llm;
+  const loadChatIfNeeded = options.loadChatModelIfNeeded === true;
+  const chatLoadTimeout = options.chatModelLoadTimeoutMs ?? 120_000;
+  // BGE is ~17 MB; 60s is enough when loading from cache via LlamaService.
+  const embedLoadTimeout = options.embeddingModelLoadTimeoutMs ?? 60_000;
 
   onProgress?.("Mapping blocks…");
   const { blocks, markdown } = blocksToStudyDocumentParts(pdfBlocks);
@@ -75,9 +108,13 @@ export async function generateStudyPkc(
   if (wantEmbed && embedProvider) {
     try {
       onProgress?.(`Loading embedding model ${embeddingModelId}…`);
-      await ensureEmbeddingModelReady(embedProvider, embeddingModelId, {
-        onStatus: onProgress,
-      });
+      await withTimeout(
+        ensureEmbeddingModelReady(embedProvider, embeddingModelId, {
+          onStatus: onProgress,
+        }),
+        embedLoadTimeout,
+        `Embedding model ${embeddingModelId}`,
+      );
       usedEmbeddingModel = embeddingModelId;
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i]!;
@@ -92,9 +129,9 @@ export async function generateStudyPkc(
         }
       }
     } catch (err) {
-      warnings.push(
-        `Embeddings skipped: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const msg = explainModelFailure(embeddingModelId, err, /timed out/i.test(String(err)) ? "timeout" : "load");
+      onProgress?.(msg);
+      warnings.push(`Embeddings skipped: ${msg}`);
     }
   } else if (options.generateEmbeddings !== false && chunks.length > 0) {
     warnings.push("Embeddings skipped: provider has no embedText() (download BGE and use an embed-capable provider).");
@@ -105,21 +142,45 @@ export async function generateStudyPkc(
   let usedChatModel: string | null = null;
 
   if (wantFlash) {
-    let chatProvider = llm;
-    if (llm) {
+    let chatProvider: GgufInferenceProvider | null = null;
+    const chatAlreadyLoaded = !!llm && getLoadedModelId() === chatModelId;
+
+    if (llm && chatAlreadyLoaded) {
+      chatProvider = llm;
+      usedChatModel = chatModelId;
+      onProgress?.(`Using loaded chat model ${chatModelId} for flash answers…`);
+    } else if (llm && loadChatIfNeeded) {
       try {
-        onProgress?.(`Loading chat model ${chatModelId} for flash/MCQ…`);
-        await ensureModelReady(llm, chatModelId, { onStatus: onProgress });
+        onProgress?.(
+          `Loading chat model ${chatModelId} (~700 MB). Needs free disk to download and free RAM to load; may take several minutes…`,
+        );
+        await withTimeout(
+          ensureModelReady(llm, chatModelId, { onStatus: onProgress }),
+          chatLoadTimeout,
+          `Chat model ${chatModelId}`,
+        );
         usedChatModel = chatModelId;
         chatProvider = llm;
       } catch (err) {
-        warnings.push(
-          `Chat model unavailable — using rule-based flash answers only: ${err instanceof Error ? err.message : String(err)}`,
+        const msg = explainModelFailure(
+          chatModelId,
+          err,
+          /timed out/i.test(String(err)) ? "timeout" : "load",
         );
+        onProgress?.(msg);
+        warnings.push(`Chat model unavailable — using rule-based flash answers only. ${msg}`);
         chatProvider = null;
       }
     } else {
-      warnings.push("No LLM provider — flashcards use rule-based answers only; MCQs still generated from flash peers.");
+      const skipMsg = explainModelFailure(chatModelId, "skipped for speed", "skip");
+      onProgress?.(skipMsg);
+      if (llm) {
+        warnings.push(skipMsg);
+      } else {
+        warnings.push(
+          "No LLM provider — flashcards use rule-based answers only; MCQs still generated from flash peers.",
+        );
+      }
     }
 
     onProgress?.("Generating flashcards…");

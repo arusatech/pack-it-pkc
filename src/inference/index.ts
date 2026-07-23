@@ -38,6 +38,8 @@ export {
   type DownloadModelOptions,
 } from "./download-model.js";
 
+export { explainModelFailure } from "./model-errors.js";
+
 export {
   setActiveModelId,
   getActiveModelId,

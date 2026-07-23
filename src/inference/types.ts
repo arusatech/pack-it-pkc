@@ -28,7 +28,14 @@ export interface CompletionOptions {
 export interface GgufInferenceProvider {
   readonly platform: "capacitor";
 
-  loadModel(options: { modelPath: string; contextId?: number; embedding?: boolean }): Promise<void>;
+  loadModel(options: {
+    modelPath: string;
+    /** Catalog id when known (preferred over inferring from path). */
+    modelId?: string;
+    contextId?: number;
+    embedding?: boolean;
+    onProgress?: (progress: number) => void;
+  }): Promise<void>;
   unloadModel?(contextId?: number): Promise<void>;
 
   complete(messages: ChatMessage[], options?: CompletionOptions): Promise<string>;

@@ -1,6 +1,7 @@
 import type { PdfBlock, PdfDocumentBlocks, PdfQaBlock, PdfTableBlock } from "./pdf-block-types.js";
 import { qaPartsToContent } from "./pdf-qa.js";
 import { mergePartialNumberingLines } from "./merge-partial-numbering.js";
+import { normalizeChemistryMarkupForStudy } from "./chemistry-normalize.js";
 
 export function tableRowsToMarkdown(rows: string[][]): string {
   if (!rows.length) return "";
@@ -28,27 +29,30 @@ export function tableRowsToMarkdown(rows: string[][]): string {
 
 function renderBlock(block: PdfBlock): string {
   switch (block.type) {
-    case "heading":
-      return block.content.trim().startsWith("#")
-        ? block.content.trim()
-        : `# ${block.content.trim()}`;
+    case "heading": {
+      const body = normalizeChemistryMarkupForStudy(block.content.trim());
+      return body.startsWith("#") ? body : `# ${body}`;
+    }
     case "list":
     case "text":
-      return block.content.trim();
+      return normalizeChemistryMarkupForStudy(block.content.trim());
     case "table": {
       const table = block as PdfTableBlock;
-      if (table.content.trim()) return table.content.trim();
+      if (table.content.trim()) return normalizeChemistryMarkupForStudy(table.content.trim());
       return tableRowsToMarkdown(table.rows);
     }
     case "image": {
       const alt = block.content.trim() || "image";
       const markdown = block.dataUrl ? `![${alt}](${block.dataUrl})` : `![${alt}]()`;
       const ocr = block.ocrText?.trim();
-      return ocr ? `${markdown}\n\n${ocr}` : markdown;
+      return ocr ? `${markdown}\n\n${normalizeChemistryMarkupForStudy(ocr)}` : markdown;
     }
     case "qa": {
       const qa = block as PdfQaBlock;
-      return qaPartsToContent(qa.question.content, qa.answer.content);
+      return qaPartsToContent(
+        normalizeChemistryMarkupForStudy(qa.question.content),
+        normalizeChemistryMarkupForStudy(qa.answer.content),
+      );
     }
   }
 }

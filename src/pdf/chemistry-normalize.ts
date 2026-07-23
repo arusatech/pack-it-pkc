@@ -111,8 +111,8 @@ export function isMostlyProse(text: string): boolean {
 export function isRealChemistryFormula(text: string): boolean {
   const t = text.trim();
   if (!t || isMostlyProse(t)) return false;
-  if (t.length > 100) return false;
-  if (t.split(/\s+/).length > 10) return false;
+  if (t.length > 120) return false;
+  if (t.split(/\s+/).length > 12) return false;
 
   // Reaction with arrow
   if (/(?:->|<->|<-)/.test(t) && /[A-Z][a-z]?/.test(t)) return true;
@@ -122,6 +122,12 @@ export function isRealChemistryFormula(text: string): boolean {
       t,
     )
   ) {
+    return true;
+  }
+  // Salts / formulas / comma lists: ZnSO4, ZnSO_{4}, CuSO4 — user edits in text regions
+  const formulaToken =
+    "[A-Z][a-z]?(?:[A-Za-z0-9]|_\\{[^}]+\\}|\\^{[^}]+}|\\([^)]*\\))*";
+  if (new RegExp(`^${formulaToken}(?:\\s*,\\s*${formulaToken})*$`).test(t.replace(/\s+/g, " "))) {
     return true;
   }
   // Compact multi-species without too many English words
@@ -151,11 +157,24 @@ export function isLowConfidenceNormalization(plain: string, mhchem: string): boo
   return chemistryNormalizeConfidence(plain, mhchem) < 0.72;
 }
 
-/** Convert one chemistry line to \\ce{…} (no $ delimiters). */
+/** Convert one chemistry line to \\ce{…} (no $ delimiters).
+ *  Never wraps English prose — use normalizeChemistryInText for mixed regions.
+ */
 export function plainChemistryToMhchem(plain: string): string {
   let s = plain.trim();
   if (!s) return s;
-  if (s.startsWith('\\ce{') && s.endsWith('}')) return s;
+
+  if (s.startsWith("\\ce{") && s.endsWith("}")) {
+    const inner = s.slice(4, -1);
+    if (isRealChemistryFormula(inner)) return s;
+    // Spurious whole-paragraph wrap — unwrap and only tag real chem spans.
+    return normalizeChemistryInText(inner);
+  }
+
+  // Long prose / mistagged formula regions: keep sentences, wrap ions/reactions only.
+  if (isMostlyProse(s) || !(isRealChemistryFormula(s) || looksLikeChemistry(s))) {
+    return normalizeChemistryInText(s);
+  }
 
   s = normalizeArrowSymbols(s);
   s = normalizeIonCharges(s);
@@ -214,7 +233,8 @@ function normalizeChemistryLine(line: string): string {
 function wrapInlineIonsAndReactions(line: string): string {
   // Work only outside existing $…$ spans (idempotent on already-polished text).
   return mapOutsideMath(line, (prose) => {
-    let s = wrapInlineChemistrySpansInProse(prose);
+    let s = normalizeUnicodeMathPunctuation(prose);
+    s = wrapInlineChemistrySpansInProse(s);
     s = s.replace(
       /\b([A-Z][a-z]?(?:\d+)?(?:\^{[^}]+})(?:\((?:aq|s|l|g)\))?)(?![A-Za-z0-9])/g,
       (match) => {
@@ -222,8 +242,25 @@ function wrapInlineIonsAndReactions(line: string): string {
         return `$\\ce{${match}}$`;
       },
     );
+    // Units like dm^{–3} / dm^{-3} → math (not mhchem)
+    s = s.replace(
+      /\b(mol\s+)?(dm|cm|mm|m|L|l)\s*\^{\s*([−–—‐‑-]?\d+)\s*\}/g,
+      (_m, molPrefix: string | undefined, unit: string, exp: string) => {
+        const e = exp.replace(/[−–—‐‑]/g, "-");
+        const mol = molPrefix ? "\\mathrm{mol}\\," : "";
+        return `$${mol}\\mathrm{${unit}}^{${e}}$`;
+      },
+    );
     return s;
   });
+}
+
+/** Normalize OCR punctuation that breaks LaTeX / mhchem. */
+function normalizeUnicodeMathPunctuation(text: string): string {
+  return text
+    .replace(/[−–—‐‑]/g, "-")
+    .replace(/×/g, "\\times ")
+    .replace(/·/g, "\\cdot ");
 }
 
 /** Apply `fn` to prose segments only; leave $…$ / $$…$$ untouched. */
@@ -346,16 +383,47 @@ export function stripSpuriousChemistryWraps(text: string): string {
 
     const inner = text.slice(openBrace + 1, j);
     const trailingDollar = withDollars && text[j + 1] === "$";
-    if (isRealChemistryFormula(inner)) {
-      result += `$\\ce{${inner}}$`;
+    // Keep user-authored chemistry (ZnSO_{4}, ions, reactions). Only unwrap English prose.
+    if (isMostlyProse(inner) && !isRealChemistryFormula(inner)) {
+      result += inner;
       i = j + 1 + (trailingDollar ? 1 : 0);
     } else {
-      result += inner;
+      const tidied = tidyCeInner(inner);
+      result += `$\\ce{${tidied}}$`;
       i = j + 1 + (trailingDollar ? 1 : 0);
     }
   }
 
   return result.replace(/\$\s*\$/g, "").replace(/[ \t]{2,}/g, " ");
+}
+
+/** Normalize spacing inside a \\ce{…} body (user edits like "ZnSO_{4} ,CuSO_{4}"). */
+function tidyCeInner(inner: string): string {
+  return inner
+    .replace(/\s*,\s*/g, ", ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Prepare any block text (text / heading / list / qa / formula) for Study PKC + render.
+ * Preserves user \\ce{…} / \\pu{…}, wraps them in $…$, leaves surrounding prose alone.
+ */
+export function normalizeChemistryMarkupForStudy(text: string): string {
+  if (!text?.trim()) return text ?? "";
+  let s = text.replace(/\\ce\s*\{/g, "\\ce{").replace(/\\pu\s*\{/g, "\\pu{");
+  if (!/\\ce\{|\\pu\{/.test(s)) return s;
+  // Unwrap prose-only mistaken wraps, keep real formulas, ensure $ delimiters.
+  s = stripSpuriousChemistryWraps(s);
+  if (/\\ce\{|\\pu\{/.test(s)) {
+    s = wrapMhchemBlocksInMathDelimiters(s);
+  }
+  return s;
+}
+
+/** True when editable content includes mhchem / math markup worth previewing. */
+export function contentHasChemistryMarkup(text: string): boolean {
+  return /\\ce\s*\{|\\pu\s*\{|\$\\ce\{|\$\\pu\{/.test(text ?? "");
 }
 
 /**

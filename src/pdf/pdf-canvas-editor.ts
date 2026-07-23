@@ -19,7 +19,10 @@ import {
 import { extractPdfPageBlocks } from "./pdf-extractor.js";
 import { asQaBlock, isQaPlaceholder, isQaSegment, qaPart, qaPartsToContent } from "./pdf-qa.js";
 import { containsMathOrChemistry, mountFormulaPreview } from "./katex-service.js";
-import { looksLikeChemistry } from "./chemistry-normalize.js";
+import {
+  contentHasChemistryMarkup,
+  looksLikeChemistry,
+} from "./chemistry-normalize.js";
 import { llmPlainToMhchem } from "./chemistry-llm-assist.js";
 import { llmPlainToLatex } from "./math-llm-assist.js";
 import { collapseNewlinesToSpaces, WRAP_TOGGLE_ICON_SVG } from "./pdf-block-text-wrap.js";
@@ -862,7 +865,7 @@ export class PdfCanvasEditor {
   }
 
   /**
-   * Hi-DPI MuPDF re-render of the PDF bbox → trim margins / refine edges → WebP/JPEG.
+   * Hi-DPI MuPDF re-render of the PDF bbox → trim margins / sharpen → PNG (document).
    * Falls back to cropping the on-screen preview if the PDF region render fails.
    */
   private async cropBboxToOptimizedDataUrl(
@@ -871,9 +874,10 @@ export class PdfCanvasEditor {
   ): Promise<{ dataUrl: string; width: number; height: number } | undefined> {
     let canvas: HTMLCanvasElement | undefined;
     try {
+      // Match annadata SegmentProcessor: ~3–5× zoom, large max edge for readable text.
       canvas = renderPdfBboxToCanvas(this.pdfBytes, pageIndex, bbox, {
-        maxEdge: 2000,
-        maxZoom: 4,
+        maxEdge: 4096,
+        maxZoom: 5,
       });
     } catch (err) {
       console.warn("[PdfCanvasEditor] hi-DPI PDF crop failed, using screen raster", err);
@@ -883,16 +887,18 @@ export class PdfCanvasEditor {
     try {
       return await optimizeImageCanvasToDataUrl(canvas, {
         colorMode: this.imageColorMode,
-        maxEdge: 2000,
-        webpQuality: 0.9,
-        jpegQuality: 0.92,
+        maxEdge: 4096,
+        webpQuality: 0.95,
+        jpegQuality: 0.95,
         trimMargins: true,
         refineEdges: true,
+        // Document/B&W → lossless PNG so small text stays sharp.
+        preferLossless: !this.imageColorMode,
       });
     } catch (err) {
-      console.warn("[PdfCanvasEditor] image optimize failed, using jpeg fallback", err);
+      console.warn("[PdfCanvasEditor] image optimize failed, using png fallback", err);
       return {
-        dataUrl: canvas.toDataURL("image/jpeg", 0.92),
+        dataUrl: canvas.toDataURL("image/png"),
         width: canvas.width,
         height: canvas.height,
       };
@@ -1308,12 +1314,7 @@ export class PdfCanvasEditor {
     } else if (block.segmentTag === "formula" || block.segmentTag === "math") {
       card.append(this.createFormulaEditor(block));
     } else {
-      const area = document.createElement("textarea");
-      area.className = "pce-textarea";
-      area.rows = block.type === "heading" ? 2 : 6;
-      area.value = block.content;
-      area.addEventListener("input", () => this.patchBlock(block.id, { content: area.value }));
-      card.append(area);
+      card.append(this.createProseEditor(block));
     }
 
     card.addEventListener("click", () => {
@@ -1324,6 +1325,57 @@ export class PdfCanvasEditor {
     });
 
     return card;
+  }
+
+  /**
+   * Text / heading / list editor — supports manual \\ce{…} in any region with live preview.
+   */
+  private createProseEditor(block: PdfBlock): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "pce-prose-editor";
+
+    const area = document.createElement("textarea");
+    area.className = "pce-textarea";
+    area.rows = block.type === "heading" ? 2 : 6;
+    area.placeholder = "Text — you can insert chemistry as \\ce{ZnSO4} or \\ce{ZnSO_{4}, CuSO_{4}}";
+    area.value = block.content;
+    area.addEventListener("click", (e) => e.stopPropagation());
+
+    const preview = document.createElement("div");
+    preview.className = "pce-formula-preview";
+    const previewLabel = document.createElement("span");
+    previewLabel.className = "pce-formula-preview-label";
+    previewLabel.textContent = "Preview";
+    const previewBody = document.createElement("div");
+    previewBody.className = "pce-formula-render";
+    preview.append(previewLabel, previewBody);
+
+    const refreshPreview = (content: string) => {
+      const show = contentHasChemistryMarkup(content);
+      preview.hidden = !show;
+      if (!show) {
+        previewBody.innerHTML = "";
+        return;
+      }
+      mountFormulaPreview(previewBody, content, { displayMode: false });
+    };
+
+    area.addEventListener("input", () => {
+      const content = area.value;
+      const patch: Partial<PdfTextBlock> = {
+        content,
+        lines: content.split("\n"),
+      };
+      if (contentHasChemistryMarkup(content)) {
+        patch.contentFormat = "mixed";
+      }
+      this.patchBlock(block.id, patch);
+      refreshPreview(content);
+    });
+
+    wrap.append(area, preview);
+    refreshPreview(block.content);
+    return wrap;
   }
 
   private createFormulaEditor(block: PdfBlock): HTMLElement {
@@ -1344,10 +1396,10 @@ export class PdfCanvasEditor {
     preview.className = "pce-formula-preview";
     const previewLabel = document.createElement("span");
     previewLabel.className = "pce-formula-preview-label";
-    previewLabel.textContent = block.segmentTag === "formula" ? "Formula preview" : "Math preview";
+    previewLabel.textContent = "Preview";
     const previewBody = document.createElement("div");
     previewBody.className = "pce-formula-render";
-    previewBody.setAttribute("aria-label", previewLabel.textContent);
+    previewBody.setAttribute("aria-label", "Preview");
     preview.append(previewLabel, previewBody);
 
     const refreshPreview = (content: string) => {
@@ -1376,6 +1428,8 @@ export class PdfCanvasEditor {
           }
         }
       }
+      // mountFormulaPreview → prepareContentForAutoRender unwraps spurious \\ce{prose}
+      // and promotes Zn^{2+} / Cu^{2+} ions for display.
 
       mountFormulaPreview(previewBody, forPreview, {
         displayMode: block.segmentTag === "formula" || forPreview.trim().startsWith("$$"),
@@ -1492,9 +1546,26 @@ export class PdfCanvasEditor {
     qArea.value = qa.question.content;
     qArea.addEventListener("input", () => {
       this.patchQaPart(blockId, "question", qArea.value);
+      refreshQPreview(qArea.value);
     });
     qArea.addEventListener("click", (e) => e.stopPropagation());
-    qSub.append(qLabel, qArea);
+
+    const qPreview = document.createElement("div");
+    qPreview.className = "pce-formula-preview";
+    const qPreviewLabel = document.createElement("span");
+    qPreviewLabel.className = "pce-formula-preview-label";
+    qPreviewLabel.textContent = "Preview";
+    const qPreviewBody = document.createElement("div");
+    qPreviewBody.className = "pce-formula-render";
+    qPreview.append(qPreviewLabel, qPreviewBody);
+    const refreshQPreview = (content: string) => {
+      const show = contentHasChemistryMarkup(content);
+      qPreview.hidden = !show;
+      if (show) mountFormulaPreview(qPreviewBody, content, { displayMode: false });
+      else qPreviewBody.innerHTML = "";
+    };
+    qSub.append(qLabel, qArea, qPreview);
+    refreshQPreview(qa.question.content);
 
     const aSub = document.createElement("div");
     const answerEmpty = !qa.answer.content.trim();
@@ -1510,9 +1581,26 @@ export class PdfCanvasEditor {
     aArea.addEventListener("input", () => {
       this.patchQaPart(blockId, "answer", aArea.value);
       aSub.classList.toggle("pce-qa-sub--empty", !aArea.value.trim());
+      refreshAPreview(aArea.value);
     });
     aArea.addEventListener("click", (e) => e.stopPropagation());
-    aSub.append(aLabel, aArea);
+
+    const aPreview = document.createElement("div");
+    aPreview.className = "pce-formula-preview";
+    const aPreviewLabel = document.createElement("span");
+    aPreviewLabel.className = "pce-formula-preview-label";
+    aPreviewLabel.textContent = "Preview";
+    const aPreviewBody = document.createElement("div");
+    aPreviewBody.className = "pce-formula-render";
+    aPreview.append(aPreviewLabel, aPreviewBody);
+    const refreshAPreview = (content: string) => {
+      const show = contentHasChemistryMarkup(content);
+      aPreview.hidden = !show;
+      if (show) mountFormulaPreview(aPreviewBody, content, { displayMode: false });
+      else aPreviewBody.innerHTML = "";
+    };
+    aSub.append(aLabel, aArea, aPreview);
+    refreshAPreview(qa.answer.content);
 
     wrap.append(qSub, aSub);
     return wrap;
@@ -1526,13 +1614,15 @@ export class PdfCanvasEditor {
     const qa = existing.type === "qa" ? existing : asQaBlock(existing);
     const question = part === "question" ? value : qa.question.content;
     const answer = part === "answer" ? value : qa.answer.content;
+    const combined = qaPartsToContent(question, answer);
 
     this.patchBlock(blockId, {
       type: "qa",
       segmentTag: "qa",
       question: qaPart(question),
       answer: qaPart(answer),
-      content: qaPartsToContent(question, answer),
+      content: combined,
+      ...(contentHasChemistryMarkup(combined) ? { contentFormat: "mixed" as const } : {}),
     });
   }
 

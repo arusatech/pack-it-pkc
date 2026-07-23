@@ -66,6 +66,7 @@ export class CapacitorGgufProvider implements GgufInferenceProvider {
     modelPath: string;
     contextId?: number;
     embedding?: boolean;
+    onProgress?: (progress: number) => void;
   }): Promise<void> {
     if (!this.initLlama) {
       throw new Error("CapacitorGgufProvider not initialized. Call create() first.");
@@ -81,13 +82,24 @@ export class CapacitorGgufProvider implements GgufInferenceProvider {
 
     this.modelPath = options.modelPath;
     this.embeddingMode = options.embedding === true;
-    this.context = await this.initLlama({
-      model: options.modelPath,
-      embedding: this.embeddingMode,
-      n_ctx: this.embeddingMode ? 512 : 2048,
-      n_gpu_layers: 99,
-      n_batch: this.embeddingMode ? 512 : 256,
-    });
+    this.context = await this.initLlama(
+      {
+        model: options.modelPath,
+        embedding: this.embeddingMode,
+        n_ctx: this.embeddingMode ? 512 : 2048,
+        n_gpu_layers: 99,
+        n_batch: this.embeddingMode ? 512 : 256,
+      },
+      options.onProgress
+        ? (p) => {
+            try {
+              options.onProgress?.(p);
+            } catch {
+              /* ignore UI errors */
+            }
+          }
+        : undefined,
+    );
   }
 
   async unloadModel(_contextId?: number): Promise<void> {
