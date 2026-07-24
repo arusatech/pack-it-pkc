@@ -1,7 +1,7 @@
 import type { GgufInferenceProvider } from "../inference/types.js";
 import {
   DEFAULT_OFFLINE_MODEL_ID,
-  LFM2_CHAT_MODEL_ID,
+  SMOL_CHAT_MODEL_ID,
 } from "../inference/model-catalog.js";
 import { ensureEmbeddingModelReady, ensureModelReady, getActiveModelId, getLoadedModelId } from "../inference/model-session.js";
 import { explainModelFailure } from "../inference/model-errors.js";
@@ -15,6 +15,8 @@ import {
   type PkcStudyDocument,
   type PkcStudyStats,
 } from "./study-types.js";
+import { createStudyVectorIndex } from "./vector/create-index.js";
+import type { StudyVectorBackend } from "./vector/types.js";
 
 export type GenerateStudyPkcOptions = {
   title?: string | null;
@@ -27,9 +29,8 @@ export type GenerateStudyPkcOptions = {
   generateFlashMcq?: boolean;
   generateEmbeddings?: boolean;
   /**
-   * When true, download/load the chat GGUF for LLM flash answers.
-   * Default false — LFM2 is ~700MB and can stall load for many minutes;
-   * rule-based flashcards are used instead unless the chat model is already loaded.
+   * When true (default), download/load Smol for LLM flash answers after embeddings.
+   * Set false to finish faster with rule-based flashcards only.
    */
   loadChatModelIfNeeded?: boolean;
   /** Max ms to wait for chat model load when loadChatModelIfNeeded (default 120s). */
@@ -84,11 +85,11 @@ export async function generateStudyPkc(
   const warnings: string[] = [];
   const onProgress = options.onProgress;
   const wantFlash = options.generateFlashMcq !== false;
-  const chatModelId = options.chatModelId ?? getActiveModelId() ?? LFM2_CHAT_MODEL_ID;
+  const chatModelId = options.chatModelId ?? getActiveModelId() ?? SMOL_CHAT_MODEL_ID;
   const embeddingModelId = options.embeddingModelId ?? DEFAULT_OFFLINE_MODEL_ID;
   const llm = options.llmProvider ?? null;
   const embedProvider = options.embeddingProvider ?? llm;
-  const loadChatIfNeeded = options.loadChatModelIfNeeded === true;
+  const loadChatIfNeeded = options.loadChatModelIfNeeded !== false;
   const chatLoadTimeout = options.chatModelLoadTimeoutMs ?? 120_000;
   // BGE is ~17 MB; 60s is enough when loading from cache via LlamaService.
   const embedLoadTimeout = options.embeddingModelLoadTimeoutMs ?? 60_000;
@@ -105,6 +106,7 @@ export async function generateStudyPkc(
     typeof embedProvider?.embedText === "function";
 
   let usedEmbeddingModel: string | null = null;
+  let usedVectorBackend: StudyVectorBackend | null = null;
   if (wantEmbed && embedProvider) {
     try {
       onProgress?.(`Loading embedding model ${embeddingModelId}…`);
@@ -127,6 +129,24 @@ export async function generateStudyPkc(
           );
           chunk.embedding = [];
         }
+      }
+
+      const embedded = chunks.filter((c) => c.embedding.length > 0);
+      if (embedded.length > 0) {
+        onProgress?.("Building USearch vector index…");
+        const dim = embedded[0]!.embedding.length;
+        const index = await createStudyVectorIndex(dim);
+        index.add(
+          embedded.map((c) => ({
+            chunkId: c.chunkId,
+            text: c.text,
+            embedding: c.embedding,
+          })),
+        );
+        usedVectorBackend = index.backend;
+        onProgress?.(
+          `Vector index ready (${index.backend}, ${index.size()} vectors)`,
+        );
       }
     } catch (err) {
       const msg = explainModelFailure(embeddingModelId, err, /timed out/i.test(String(err)) ? "timeout" : "load");
@@ -152,7 +172,7 @@ export async function generateStudyPkc(
     } else if (llm && loadChatIfNeeded) {
       try {
         onProgress?.(
-          `Loading chat model ${chatModelId} (~700 MB). Needs free disk to download and free RAM to load; may take several minutes…`,
+          `Loading chat model ${chatModelId} (~100 MB). Needs free disk to download and free RAM to load…`,
         );
         await withTimeout(
           ensureModelReady(llm, chatModelId, { onStatus: onProgress }),
@@ -203,6 +223,7 @@ export async function generateStudyPkc(
     models: {
       embedding: usedEmbeddingModel,
       chat: usedChatModel,
+      vectorIndex: usedVectorBackend,
     },
     warnings: warnings.length ? warnings : undefined,
   };

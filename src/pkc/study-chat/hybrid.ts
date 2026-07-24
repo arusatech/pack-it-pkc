@@ -6,6 +6,8 @@ export interface RankedChunk {
   chunkId: string;
   text: string;
   score: number;
+  /** Raw cosine similarity from the dense arm (when available). */
+  vectorScore?: number;
 }
 
 interface FusedEntry {

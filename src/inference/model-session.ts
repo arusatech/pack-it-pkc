@@ -9,7 +9,7 @@ import {
 } from "./download-model.js";
 import {
   isChatCapableModel,
-  LFM2_CHAT_MODEL_ID,
+  SMOL_CHAT_MODEL_ID,
   DEFAULT_OFFLINE_MODEL_ID,
   type ModelCatalogEntry,
   createModelCatalog,
@@ -47,7 +47,7 @@ export function setActiveModelId(modelId: string): void {
 }
 
 export function getActiveModelId(): string {
-  return activeModelIdMemory ?? readStoredActiveModelId() ?? LFM2_CHAT_MODEL_ID;
+  return activeModelIdMemory ?? readStoredActiveModelId() ?? SMOL_CHAT_MODEL_ID;
 }
 
 export function getLoadedModelId(): string | null {
@@ -77,7 +77,7 @@ export async function ensureModelReady(
   const requireChat = options.requireChatCapable !== false;
   if (requireChat && !isChatCapableModel(modelId)) {
     throw new Error(
-      `Model '${modelId}' is not chat-capable. Choose a chat model (e.g. ${LFM2_CHAT_MODEL_ID}).`,
+      `Model '${modelId}' is not chat-capable. Choose a chat model (e.g. ${SMOL_CHAT_MODEL_ID}).`,
     );
   }
 
@@ -86,7 +86,7 @@ export async function ensureModelReady(
     let path = await getModelLocalPath(modelId);
     if (!path) {
       options.onStatus?.(
-        `Downloading ${modelId}… (needs free disk/browser storage; chat models can be ~700 MB)`,
+        `Downloading ${modelId}… (needs free disk/browser storage; Smol chat is ~100 MB)`,
       );
       try {
         const info = await downloadModel(modelId, { onProgress: options.onProgress });

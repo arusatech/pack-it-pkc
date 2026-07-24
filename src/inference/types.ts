@@ -15,7 +15,7 @@ export interface CompletionOptions {
   maxTokens?: number;
   temperature?: number;
   stream?: boolean;
-  /** Raw prompt (e.g. LFM2 ChatML). When set, `messages` are ignored. */
+  /** Raw prompt (e.g. SmolLM2 ChatML). When set, `messages` are ignored. */
   prompt?: string;
   /** Stop sequences for completion. */
   stop?: string[];

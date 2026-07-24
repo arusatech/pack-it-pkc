@@ -1,6 +1,12 @@
 export { StudyBm25Index, studyBm25, type Bm25Hit } from "./bm25.js";
 export { fuseRankedLists, type RankedChunk } from "./hybrid.js";
 export {
+  assessStudyRetrievalRelevance,
+  lexicalOverlapRatio,
+  significantQueryTerms,
+  type RetrievalRelevance,
+} from "./relevance.js";
+export {
   STUDY_CHAT_RAG_CLAMP,
   STUDY_CHAT_RAG_MAX_SENTENCES,
   STUDY_CHAT_RAG_MAX_WORDS,
@@ -15,10 +21,12 @@ export {
   extractStudyReplyFromContext,
   polishStudyChatReply,
   trimChatRepetition,
+  dedupeAdjacentChemistryBlocks,
 } from "./reply.js";
 export {
   collectStudySearchChunks,
   retrieveStudyContext,
+  clearStudyVectorIndexCache,
   type StudyRetrieveMode,
   type StudyRetrieveResult,
 } from "./retrieve.js";

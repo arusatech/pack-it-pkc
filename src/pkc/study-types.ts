@@ -174,6 +174,8 @@ export interface PkcStudyDocument {
   models: {
     embedding?: string | null;
     chat?: string | null;
+    /** Dense ANN backend used when embeddings were built (`usearch` or `exact-cosine`). */
+    vectorIndex?: "usearch" | "exact-cosine" | null;
   };
   stats: PkcStudyStats;
   warnings?: string[];

@@ -16,7 +16,7 @@ import {
   getActiveModelId,
   isChatCapableModel,
   listModelsWithStatus,
-  LFM2_CHAT_MODEL_ID,
+  SMOL_CHAT_MODEL_ID,
   DEFAULT_OFFLINE_MODEL_ID,
   setActiveModelId,
 } from "../../src/inference/index.js";
@@ -275,7 +275,7 @@ async function handleGenerateStudyPkc(): Promise<void> {
       title: lastResult.title,
       source: activeFile()?.name ?? lastResult.baseName,
       llmProvider,
-      chatModelId: getActiveModelId() ?? LFM2_CHAT_MODEL_ID,
+      chatModelId: getActiveModelId() ?? SMOL_CHAT_MODEL_ID,
       embeddingModelId: DEFAULT_OFFLINE_MODEL_ID,
       onProgress: (msg) => {
         studyPkcStatus.hidden = false;
@@ -331,7 +331,7 @@ function mountPdfEditor(bytes: Uint8Array, doc: PdfDocumentBlocks, title: string
     doc,
     imageColorMode,
     llmProvider,
-    getAssistModelId: () => getActiveModelId() || LFM2_CHAT_MODEL_ID,
+    getAssistModelId: () => getActiveModelId() || SMOL_CHAT_MODEL_ID,
     onAssistProgress: (msg) => setStatus(msg),
     onChange: (updated, markdown) => {
       applyResult(markdown, updated.title ?? title, updated);

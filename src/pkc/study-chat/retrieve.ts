@@ -1,20 +1,37 @@
 /**
- * Study PKC retrieval: FlexSearch BM25 + optional BGE vector hybrid.
+ * Study PKC retrieval: FlexSearch BM25 + BGE vector hybrid via USearch / exact cosine.
+ * Off-topic queries (weak cosine + no lexical overlap) return empty snippets → "not found".
  */
 
 import type { GgufInferenceProvider } from "../../inference/types.js";
 import { ensureEmbeddingModelReady } from "../../inference/model-session.js";
-import { DEFAULT_OFFLINE_MODEL_ID } from "../../inference/model-catalog.js";
+import {
+  BGE_EMBEDDING_DIMENSION,
+  DEFAULT_OFFLINE_MODEL_ID,
+} from "../../inference/model-catalog.js";
+import {
+  STUDY_RAG_BM25_TOP_K,
+  STUDY_RAG_FUSE_TOP_K,
+  STUDY_RAG_MIN_VECTOR_SCORE,
+  STUDY_RAG_VECTOR_TOP_K,
+} from "../study-rag-config.js";
 import type { PkcStudyDocument } from "../study-types.js";
+import { createStudyVectorIndex } from "../vector/create-index.js";
+import type { StudyVectorIndex } from "../vector/types.js";
 import { studyBm25 } from "./bm25.js";
 import { fuseRankedLists, type RankedChunk } from "./hybrid.js";
+import { assessStudyRetrievalRelevance } from "./relevance.js";
 
-export type StudyRetrieveMode = "hybrid" | "bm25-only" | "bm25-no-vectors";
+export type StudyRetrieveMode = "hybrid" | "bm25-only" | "bm25-no-vectors" | "no-match";
 
 export interface StudyRetrieveResult {
   snippets: string[];
   ranked: RankedChunk[];
   mode: StudyRetrieveMode;
+  /** Which dense index backed the vector arm (when hybrid). */
+  vectorBackend?: StudyVectorIndex["backend"];
+  /** Why retrieval was accepted or rejected. */
+  relevance?: ReturnType<typeof assessStudyRetrievalRelevance>;
 }
 
 /** Build searchable corpus: RAG chunks + flash cards + MCQs. */
@@ -60,10 +77,10 @@ export function collectStudySearchChunks(
 }
 
 function docIndexKey(doc: PkcStudyDocument): string {
-  return `${doc.source ?? "study"}|${doc.createdAt}|${doc.stats?.chunkCount ?? 0}|${doc.flashCards?.length ?? 0}|${doc.mcqs?.length ?? 0}`;
+  return `${doc.source ?? "study"}|${doc.createdAt}|${doc.stats?.chunkCount ?? 0}|${doc.flashCards?.length ?? 0}|${doc.mcqs?.length ?? 0}|${doc.stats?.embeddedChunkCount ?? 0}`;
 }
 
-function ensureIndex(doc: PkcStudyDocument): string {
+function ensureBm25Index(doc: PkcStudyDocument): string {
   const key = docIndexKey(doc);
   if (!studyBm25.has(key)) {
     studyBm25.buildIndex(
@@ -74,20 +91,75 @@ function ensureIndex(doc: PkcStudyDocument): string {
   return key;
 }
 
-function cosine(a: number[], b: number[]): number {
-  if (!a.length || a.length !== b.length) return -1;
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i]!;
-    const y = b[i]!;
-    dot += x * y;
-    na += x * x;
-    nb += y * y;
+type CachedVectorIndex = {
+  key: string;
+  index: StudyVectorIndex;
+};
+
+const vectorIndexCache = new Map<string, CachedVectorIndex>();
+
+async function ensureVectorIndex(
+  doc: PkcStudyDocument,
+  withVectors: Array<{ chunkId: string; text: string; embedding: number[] }>,
+): Promise<StudyVectorIndex> {
+  const key = docIndexKey(doc);
+  const cached = vectorIndexCache.get(key);
+  if (cached && cached.index.size() === withVectors.length) {
+    return cached.index;
   }
-  if (!na || !nb) return -1;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+
+  const dimensions = withVectors[0]?.embedding.length ?? BGE_EMBEDDING_DIMENSION;
+  const index = await createStudyVectorIndex(dimensions);
+  index.add(
+    withVectors.map((c) => ({
+      chunkId: c.chunkId,
+      text: c.text,
+      embedding: c.embedding,
+    })),
+  );
+  vectorIndexCache.set(key, { key, index });
+  return index;
+}
+
+/** Drop cached dense indexes (tests / memory pressure). */
+export function clearStudyVectorIndexCache(): void {
+  vectorIndexCache.clear();
+}
+
+function attachBestVectorScores(
+  fused: RankedChunk[],
+  vectorHits: RankedChunk[],
+): RankedChunk[] {
+  const byId = new Map(vectorHits.map((h) => [h.chunkId, h.vectorScore ?? h.score]));
+  return fused.map((h) => ({
+    ...h,
+    vectorScore: byId.get(h.chunkId),
+  }));
+}
+
+function gateRelevant(
+  query: string,
+  ranked: RankedChunk[],
+  mode: StudyRetrieveMode,
+  vectorBackend?: StudyVectorIndex["backend"],
+): StudyRetrieveResult {
+  const relevance = assessStudyRetrievalRelevance(query, ranked);
+  if (!relevance.relevant || ranked.length === 0) {
+    return {
+      snippets: [],
+      ranked: [],
+      mode: "no-match",
+      vectorBackend,
+      relevance,
+    };
+  }
+  return {
+    snippets: ranked.map((r) => r.text).filter(Boolean),
+    ranked,
+    mode,
+    vectorBackend,
+    relevance,
+  };
 }
 
 export async function retrieveStudyContext(
@@ -104,11 +176,11 @@ export async function retrieveStudyContext(
   },
 ): Promise<StudyRetrieveResult> {
   const q = query.trim();
-  const bm25Limit = opts?.bm25Limit ?? 10;
-  const vectorLimit = opts?.vectorLimit ?? 10;
-  const fuseCap = opts?.fuseCap ?? 5;
+  const bm25Limit = opts?.bm25Limit ?? STUDY_RAG_BM25_TOP_K;
+  const vectorLimit = opts?.vectorLimit ?? STUDY_RAG_VECTOR_TOP_K;
+  const fuseCap = opts?.fuseCap ?? STUDY_RAG_FUSE_TOP_K;
 
-  const indexKey = ensureIndex(doc);
+  const indexKey = ensureBm25Index(doc);
   const bm25Hits = studyBm25.search(indexKey, q, bm25Limit).map(
     (h): RankedChunk => ({
       chunkId: h.chunkId,
@@ -118,17 +190,16 @@ export async function retrieveStudyContext(
   );
 
   const corpus = collectStudySearchChunks(doc);
-  const withVectors = corpus.filter((c) => c.embedding && c.embedding.length > 0);
+  const withVectors = corpus.filter(
+    (c): c is { chunkId: string; text: string; embedding: number[] } =>
+      !!c.embedding && c.embedding.length > 0,
+  );
   const provider = opts?.provider ?? null;
   const wantVectors = opts?.useVectors !== false && withVectors.length > 0 && !!provider?.embedText;
 
   if (!wantVectors) {
     const ranked = bm25Hits.slice(0, fuseCap);
-    return {
-      snippets: ranked.map((r) => r.text).filter(Boolean),
-      ranked,
-      mode: withVectors.length ? "bm25-only" : "bm25-no-vectors",
-    };
+    return gateRelevant(q, ranked, withVectors.length ? "bm25-only" : "bm25-no-vectors");
   }
 
   try {
@@ -137,28 +208,27 @@ export async function retrieveStudyContext(
       onStatus: opts?.onStatus,
     });
     const queryVec = await provider!.embedText!(q);
-    const vectorHits = withVectors
-      .map((c) => ({
-        chunkId: c.chunkId,
-        text: c.text,
-        score: cosine(queryVec, c.embedding!),
-      }))
-      .filter((h) => h.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, vectorLimit);
+    opts?.onStatus?.("Searching USearch / vector index…");
+    const vectorIndex = await ensureVectorIndex(doc, withVectors);
+    const vectorHits = vectorIndex
+      .search(queryVec, vectorLimit)
+      .filter((h) => h.score >= STUDY_RAG_MIN_VECTOR_SCORE)
+      .map(
+        (h): RankedChunk => ({
+          chunkId: h.chunkId,
+          text: h.text,
+          score: h.score,
+          vectorScore: h.score,
+        }),
+      );
 
-    const fused = fuseRankedLists(vectorHits, bm25Hits, fuseCap);
-    return {
-      snippets: fused.map((r) => r.text).filter(Boolean),
-      ranked: fused,
-      mode: "hybrid",
-    };
+    const fused = attachBestVectorScores(
+      fuseRankedLists(vectorHits, bm25Hits, fuseCap),
+      vectorHits,
+    );
+    return gateRelevant(q, fused, "hybrid", vectorIndex.backend);
   } catch {
     const ranked = bm25Hits.slice(0, fuseCap);
-    return {
-      snippets: ranked.map((r) => r.text).filter(Boolean),
-      ranked,
-      mode: "bm25-only",
-    };
+    return gateRelevant(q, ranked, "bm25-only");
   }
 }

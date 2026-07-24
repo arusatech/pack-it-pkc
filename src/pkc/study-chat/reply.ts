@@ -1,8 +1,9 @@
 /**
- * Study RAG reply helpers — extractive + LFM2 ChatML prompts (annadata studyChatReply).
+ * Study RAG reply helpers — extractive + SmolLM2 ChatML prompts.
  */
 
 import { polishStudyChatReply } from "./polish.js";
+import { STUDY_RAG_N_PREDICT } from "../study-rag-config.js";
 
 export const STUDY_CHAT_RAG_MAX_WORDS = 120;
 export const STUDY_CHAT_RAG_MAX_SENTENCES = 5;
@@ -10,11 +11,13 @@ export const STUDY_CHAT_RAG_CLAMP = {
   maxWords: STUDY_CHAT_RAG_MAX_WORDS,
   maxSentences: STUDY_CHAT_RAG_MAX_SENTENCES,
 } as const;
-export const STUDY_CHAT_RAG_N_PREDICT = 160;
+export const STUDY_CHAT_RAG_N_PREDICT = STUDY_RAG_N_PREDICT;
 
 export const STUDY_CHAT_RAG_SYSTEM_RULES =
   "You are a study assistant. Use ONLY the given passages. " +
-  "Copy the relevant sentence(s) verbatim from the passages — do not paraphrase or summarize. " +
+  "If the passages do not contain the answer, reply with exactly: " +
+  "I couldn't find information about that in the loaded study material. " +
+  "Copy the relevant sentence(s) verbatim from the passages — do not paraphrase, invent, or use outside knowledge. " +
   "Include enough surrounding context from the passage to answer the question (up to 4 sentences). " +
   "No lists, bullets, or headings. Do not prefix answers with passage numbers like [1]. " +
   "Keep normal spaces between English words. Write chemistry as one line, e.g. Zn(s) + Cu2+(aq) -> Zn2+(aq) + Cu(s).";
@@ -39,6 +42,7 @@ export {
   restoreMissingSpaces,
   joinBrokenIonCharges,
   stripPassagePrefix,
+  dedupeAdjacentChemistryBlocks,
 } from "./polish.js";
 
 export function trimChatRepetition(text: string): string {
@@ -46,13 +50,22 @@ export function trimChatRepetition(text: string): string {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const s of sentences) {
-    const key = s.trim().toLowerCase().slice(0, 80);
+    const key = normalizeRepetitionKey(s);
     if (!key) continue;
     if (seen.has(key)) break;
     seen.add(key);
     out.push(s);
   }
   return out.join(" ").trim() || text.trim();
+}
+
+function normalizeRepetitionKey(sentence: string): string {
+  return sentence
+    .trim()
+    .toLowerCase()
+    .replace(/\$/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 120);
 }
 
 /** Sentence split that does not break on '.' inside $…$ / $$…$$. */
@@ -233,23 +246,21 @@ export function extractStudyReplyFromContext(
   return null;
 }
 
-/** LFM2-1.2B-RAG ChatML prompt (Liquid HF recipe). */
+/** SmolLM2-Instruct ChatML prompt (Hugging Face chat_template). */
 export function buildStudyRagChatPrompt(userQuery: string, contextSnippets: string[]): string {
   const snippets = contextSnippets.filter(Boolean);
   const query = userQuery.slice(0, 200);
-  const passageLimits = [400, 200, 150, 120, 100];
+  // Fewer, fuller passages — fuse Top_K is 3; leave room for Smol n_ctx.
+  const passageLimits = [900, 700, 500];
   const contextBlock = snippets
-    .map((s, i) => `[${i + 1}] ${s.slice(0, passageLimits[i] ?? 80)}`)
+    .map((s, i) => `[${i + 1}] ${s.slice(0, passageLimits[i] ?? 400)}`)
     .join("\n");
 
   if (snippets.length === 0) {
     return (
-      "<|startoftext|>" +
-      `<|im_start|>system\n${STUDY_CHAT_NO_CONTEXT_RULES}\n` +
-      "<|im_end|>\n" +
-      `<|im_start|>user\n${query}\n` +
-      "<|im_end|>\n" +
-      "<|im_start|>assistant\n"
+      `<|im_start|>system\n${STUDY_CHAT_NO_CONTEXT_RULES}<|im_end|>\n` +
+      `<|im_start|>user\n${query}<|im_end|>\n` +
+      `<|im_start|>assistant\n`
     );
   }
 
@@ -261,10 +272,9 @@ export function buildStudyRagChatPrompt(userQuery: string, contextSnippets: stri
     `Question: ${query}`;
 
   return (
-    "<|startoftext|>" +
-    `<|im_start|>user\n${userBlock}\n` +
-    "<|im_end|>\n" +
-    "<|im_start|>assistant\n"
+    `<|im_start|>system\n${STUDY_CHAT_RAG_SYSTEM_RULES}<|im_end|>\n` +
+    `<|im_start|>user\n${userBlock}<|im_end|>\n` +
+    `<|im_start|>assistant\n`
   );
 }
 

@@ -20,6 +20,7 @@ const external = [
   "cheerio",
   "turndown",
   "flexsearch",
+  "usearch",
 ];
 
 export default defineConfig({

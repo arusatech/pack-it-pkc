@@ -90,7 +90,24 @@ export {
   type ChessPlayerConfig,
 } from "./games/chess/build-chess-player-html.js";
 export { blocksToStudyDocumentParts } from "./study-from-blocks.js";
-export { chunkStudyBlocks, splitSentences } from "./study-chunk.js";
+export { chunkStudyBlocks, splitSentences, packSentencesIntoChunks } from "./study-chunk.js";
+export {
+  STUDY_CHUNK_SIZE_TOKENS,
+  STUDY_CHUNK_OVERLAP_TOKENS,
+  STUDY_RAG_VECTOR_TOP_K,
+  STUDY_RAG_BM25_TOP_K,
+  STUDY_RAG_FUSE_TOP_K,
+  STUDY_RAG_MIN_VECTOR_SCORE,
+  STUDY_RAG_MIN_LEXICAL_OVERLAP,
+  STUDY_RAG_TEMPERATURE,
+  STUDY_RAG_TEMPERATURE_RETRY,
+  STUDY_RAG_N_PREDICT,
+  USEARCH_CONNECTIVITY,
+  USEARCH_EXPANSION_ADD,
+  USEARCH_EXPANSION_SEARCH,
+  estimateTokenCount,
+  tokensToCharBudget,
+} from "./study-rag-config.js";
 export {
   generateFlashCards,
   generateMcqsFromFlashCards,
@@ -116,10 +133,12 @@ export {
   answerStudyQuestion,
   retrieveStudyContext,
   collectStudySearchChunks,
+  clearStudyVectorIndexCache,
   resolveStudyChatImages,
   studyBm25,
   StudyBm25Index,
   fuseRankedLists,
+  assessStudyRetrievalRelevance,
   buildStudyRagChatPrompt,
   extractStudyReplyFromContext,
   clampStudyChatReply,
@@ -138,3 +157,14 @@ export {
   type RankedChunk,
   type Bm25Hit,
 } from "./study-chat/index.js";
+
+export {
+  createStudyVectorIndex,
+  createExactStudyVectorIndex,
+  ExactCosineIndex,
+  USearchVectorIndex,
+  type StudyVectorBackend,
+  type StudyVectorHit,
+  type StudyVectorIndex,
+  type StudyVectorRecord,
+} from "./vector/index.js";

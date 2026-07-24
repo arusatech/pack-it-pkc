@@ -1,12 +1,14 @@
 /**
  * Shared local GGUF catalog — browser (OPFS) and Node cache.
+ *
+ * Pipeline models: BGE-micro (embed) + SmolLM2 (chat). LFM2 removed.
  */
 
 export const DEFAULT_OFFLINE_MODEL_ID = "bge_micro_v2";
 
-export const LFM2_CHAT_MODEL_ID = "lfm2_1_2b_rag_q4_k_m" as const;
+export const SMOL_CHAT_MODEL_ID = "smollm2_135m_instruct_q4_k_m" as const;
 
-export const CHAT_MODEL_IDS = [LFM2_CHAT_MODEL_ID] as const;
+export const CHAT_MODEL_IDS = [SMOL_CHAT_MODEL_ID] as const;
 
 export const EMBEDDING_MODEL_IDS = new Set<string>([DEFAULT_OFFLINE_MODEL_ID]);
 
@@ -16,8 +18,8 @@ export const BGE_EMBEDDING_DIMENSION = 384;
 export const BGE_MICRO_V2_GGUF_URL =
   "https://huggingface.co/mradermacher/bge-micro-v2-GGUF/resolve/main/bge-micro-v2.Q4_K_M.gguf";
 
-export const LFM2_CHAT_MODEL_GGUF_URL =
-  "https://huggingface.co/bartowski/LiquidAI_LFM2-1.2B-RAG-GGUF/resolve/main/LiquidAI_LFM2-1.2B-RAG-Q4_K_M.gguf";
+export const SMOL_CHAT_MODEL_GGUF_URL =
+  "https://huggingface.co/itlwas/SmolLM2-135M-Instruct-Q4_K_M-GGUF/resolve/main/smollm2-135m-instruct-q4_k_m.gguf";
 
 export type ModelCatalogStatus = "available" | "downloading" | "downloaded" | "error";
 
@@ -45,13 +47,13 @@ export function createModelCatalog(): ModelCatalogEntry[] {
       url: BGE_MICRO_V2_GGUF_URL,
     },
     {
-      id: LFM2_CHAT_MODEL_ID,
-      name: "LFM2 RAG Chat",
-      sizeMB: 697.4,
-      size: 730_894_880,
+      id: SMOL_CHAT_MODEL_ID,
+      name: "SmolLM2 Chat",
+      sizeMB: 100.6,
+      size: 105_454_464,
       status: "available",
-      description: "On-device chat (Q4_K_M); formula / math AI assist",
-      url: LFM2_CHAT_MODEL_GGUF_URL,
+      description: "On-device chat (Q4_K_M); SmolLM2-135M-Instruct for study RAG",
+      url: SMOL_CHAT_MODEL_GGUF_URL,
     },
   ];
 }

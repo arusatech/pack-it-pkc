@@ -30,7 +30,7 @@ import { renderPdfBboxToCanvas, renderPdfPageDataUrl, type PageRenderInfo } from
 import { optimizeImageCanvasToDataUrl } from "./image-optimize.js";
 import type { GgufInferenceProvider } from "../inference/types.js";
 import { getActiveModelId } from "../inference/model-session.js";
-import { LFM2_CHAT_MODEL_ID } from "../inference/model-catalog.js";
+import { SMOL_CHAT_MODEL_ID } from "../inference/model-catalog.js";
 
 type CanvasTagKind = "text" | "table" | "image" | "qa" | "math" | "formula" | "question" | "answer";
 
@@ -150,7 +150,7 @@ export interface PdfCanvasEditorOptions {
   onChange?: (doc: PdfDocumentBlocks, markdown: string) => void;
   /** Optional GGUF provider for AI fix formula/math. */
   llmProvider?: GgufInferenceProvider | null;
-  /** Active assist model id (defaults to session active / LFM2). */
+  /** Active assist model id (defaults to session active / SmolLM2). */
   getAssistModelId?: () => string;
   onAssistProgress?: (message: string) => void;
 }
@@ -202,7 +202,7 @@ export class PdfCanvasEditor {
     this.doc = options.doc;
     this.onChange = options.onChange;
     this.llmProvider = options.llmProvider ?? null;
-    this.getAssistModelId = options.getAssistModelId ?? (() => getActiveModelId() || LFM2_CHAT_MODEL_ID);
+    this.getAssistModelId = options.getAssistModelId ?? (() => getActiveModelId() || SMOL_CHAT_MODEL_ID);
     this.onAssistProgress = options.onAssistProgress;
     this.imageColorMode = options.imageColorMode ?? false;
     this.mount();

@@ -166,9 +166,33 @@ export function polishStudyChatReply(text: string): string {
   s = wrapConcentrationUnits(s);
   s = normalizeChemistryInText(s);
   s = stripSpuriousChemistryWraps(s);
+  s = dedupeAdjacentChemistryBlocks(s);
   s = s.replace(/\s+/g, " ").trim();
   // Never leave a truncated \\ce{Zn(s) + for KaTeX to choke on.
   return dropIncompleteMathLocal(s);
+}
+
+/**
+ * Collapse back-to-back identical \\ce{…} (with or without $ wrappers).
+ * Fixes extractive/OCR doubles like: $\\ce{Zn…}$$\\ce{Zn…}$ or \\ce{A}\\ce{A}.
+ */
+export function dedupeAdjacentChemistryBlocks(text: string): string {
+  if (!/\\ce\{/.test(text)) return text;
+
+  let s = text;
+  // Same inner formula repeated 2+ times, optional $ around each.
+  const repeated =
+    /(\$?)\\ce\{((?:[^{}]|\{[^}]*\})*)\}(\$?)(?:\s*(?:\$?\\ce\{\2\}\$?))+/g;
+
+  let prev = "";
+  while (prev !== s) {
+    prev = s;
+    s = s.replace(repeated, (_m, openDollar: string, inner: string, closeDollar: string) => {
+      const wrap = openDollar === "$" || closeDollar === "$";
+      return wrap ? `$\\ce{${inner}}$` : `\\ce{${inner}}`;
+    });
+  }
+  return s;
 }
 
 function dropIncompleteMathLocal(text: string): string {

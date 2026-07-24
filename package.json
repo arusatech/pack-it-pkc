@@ -1,7 +1,7 @@
 {
   "name": "@annadata/pack-it-pkc",
-  "version": "1.1.0",
-  "description": "Convert documents to Markdown and pack into PKC format (MarkItDown JS port with GGUF via llama-cpp-pro)",
+  "version": "1.2.0",
+  "description": "Convert documents to Study PKC: MuPDF chunking → BGE-micro → USearch → SmolLM2",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -77,6 +77,7 @@
     "mupdf": "^1.28.0",
     "music-metadata": "^11.0.3",
     "turndown": "^7.2.0",
+    "usearch": "^2.26.0",
     "xlsx": "^0.18.5",
     "youtube-transcript-api-js": "^3.0.3"
   },

@@ -1,7 +1,21 @@
 import type { RagChunk, StudyBlock, StudyBlockKind } from "./study-types.js";
+import {
+  STUDY_CHUNK_OVERLAP_TOKENS,
+  STUDY_CHUNK_SIZE_TOKENS,
+  estimateTokenCount,
+  tokensToCharBudget,
+} from "./study-rag-config.js";
 
 export const MIN_SENTENCE_CHARS = 24;
-export const MAX_CHUNK_CHARS = 512;
+
+/** @deprecated Prefer STUDY_CHUNK_SIZE_TOKENS; kept as char ceiling for single sentences. */
+export const MAX_CHUNK_CHARS = tokensToCharBudget(STUDY_CHUNK_SIZE_TOKENS);
+
+export {
+  STUDY_CHUNK_SIZE_TOKENS,
+  STUDY_CHUNK_OVERLAP_TOKENS,
+  estimateTokenCount,
+} from "./study-rag-config.js";
 
 function isSkippableHeading(s: string): boolean {
   const t = s.trim();
@@ -29,19 +43,83 @@ export function splitSentences(text: string): string[] {
     .map((s) => s.trim())
     .filter((s) => s.length >= MIN_SENTENCE_CHARS && !isSkippableHeading(s));
 
+  const maxChars = MAX_CHUNK_CHARS;
   const result: string[] = [];
   for (const s of raw) {
-    if (s.length <= MAX_CHUNK_CHARS) {
+    if (s.length <= maxChars) {
       result.push(s);
     } else {
-      result.push(s.slice(0, MAX_CHUNK_CHARS));
+      // Oversized sentence: hard-split on char budget aligned to token size.
+      for (let i = 0; i < s.length; i += maxChars) {
+        const piece = s.slice(i, i + maxChars).trim();
+        if (piece) result.push(piece);
+      }
     }
   }
   return result;
 }
 
+/**
+ * Pack sentences into ~{@link STUDY_CHUNK_SIZE_TOKENS}-token windows with
+ * {@link STUDY_CHUNK_OVERLAP_TOKENS} token overlap (sentence-aligned when possible).
+ */
+export function packSentencesIntoChunks(
+  sentences: string[],
+  sizeTokens: number = STUDY_CHUNK_SIZE_TOKENS,
+  overlapTokens: number = STUDY_CHUNK_OVERLAP_TOKENS,
+): string[] {
+  if (sentences.length === 0) return [];
+  if (sizeTokens <= 0) throw new Error("sizeTokens must be > 0");
+  const overlap = Math.max(0, Math.min(overlapTokens, sizeTokens - 1));
+
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < sentences.length) {
+    let end = start;
+    let tokens = 0;
+    while (end < sentences.length) {
+      const next = estimateTokenCount(sentences[end]!);
+      if (end > start && tokens + next > sizeTokens) break;
+      tokens += next;
+      end += 1;
+      if (tokens >= sizeTokens) break;
+    }
+
+    if (end === start) {
+      // Single sentence larger than window — already sliced in splitSentences.
+      end = start + 1;
+    }
+
+    const text = sentences.slice(start, end).join(" ").trim();
+    if (text) chunks.push(text);
+
+    if (end >= sentences.length) break;
+
+    // Walk back from `end` until overlap budget is covered.
+    let backTokens = 0;
+    let overlapStart = end;
+    while (overlapStart > start && backTokens < overlap) {
+      overlapStart -= 1;
+      backTokens += estimateTokenCount(sentences[overlapStart]!);
+    }
+    // Always advance; avoid infinite loop when overlap covers the whole window.
+    start = Math.max(overlapStart, start + 1);
+  }
+
+  return chunks;
+}
+
 function chunkableKind(kind: StudyBlockKind): boolean {
-  return kind === "text" || kind === "heading" || kind === "list" || kind === "qa" || kind === "formula" || kind === "math" || kind === "table";
+  return (
+    kind === "text" ||
+    kind === "heading" ||
+    kind === "list" ||
+    kind === "qa" ||
+    kind === "formula" ||
+    kind === "math" ||
+    kind === "table"
+  );
 }
 
 function textsForBlock(block: StudyBlock): string[] {
@@ -66,11 +144,18 @@ export function chunkStudyBlocks(blocks: StudyBlock[]): RagChunk[] {
     const sources = textsForBlock(block);
     let local = 0;
     for (const source of sources) {
-      const sentences =
-        block.kind === "formula" || block.kind === "math"
-          ? [source.slice(0, MAX_CHUNK_CHARS)]
-          : splitSentences(source);
-      const units = sentences.length > 0 ? sentences : source.trim().length >= 12 ? [source.trim().slice(0, MAX_CHUNK_CHARS)] : [];
+      let units: string[];
+      if (block.kind === "formula" || block.kind === "math") {
+        units = [source.slice(0, MAX_CHUNK_CHARS)];
+      } else {
+        const sentences = splitSentences(source);
+        units =
+          sentences.length > 0
+            ? packSentencesIntoChunks(sentences)
+            : source.trim().length >= 12
+              ? packSentencesIntoChunks([source.trim().slice(0, MAX_CHUNK_CHARS)])
+              : [];
+      }
       for (const text of units) {
         chunks.push({
           chunkId: `${block.id}_c${local++}`,

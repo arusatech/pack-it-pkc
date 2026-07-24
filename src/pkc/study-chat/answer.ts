@@ -17,47 +17,34 @@ import {
   STUDY_CHAT_RAG_CLAMP,
   STUDY_CHAT_RAG_N_PREDICT,
   STUDY_CHAT_RAG_STOP,
-  buildStudyContextFallbackReply,
   buildStudyRagChatPrompt,
   clampStudyChatReply,
   extractStudyReplyFromContext,
 } from "./reply.js";
+import { packSentencesIntoChunks, splitSentences } from "../study-chunk.js";
+import {
+  STUDY_RAG_TEMPERATURE,
+  STUDY_RAG_TEMPERATURE_RETRY,
+} from "../study-rag-config.js";
+import { assessStudyRetrievalRelevance } from "./relevance.js";
 
 function chunkMarkdown(markdown: string): RagChunk[] {
-  const parts = markdown
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
+  const sentences = splitSentences(markdown);
+  const units =
+    sentences.length > 0
+      ? packSentencesIntoChunks(sentences)
+      : markdown.trim()
+        ? packSentencesIntoChunks([markdown.trim()])
+        : [];
 
-  const chunks: RagChunk[] = [];
-  let buf = "";
-  let idx = 0;
-
-  const flush = () => {
-    const text = buf.trim();
-    if (!text) return;
-    chunks.push({
-      chunkId: `md-${idx}`,
-      blockId: `md-${idx}`,
-      page: 1,
-      kind: "text",
-      text,
-      embedding: [],
-    });
-    idx += 1;
-    buf = "";
-  };
-
-  for (const part of parts) {
-    if (buf.length === 0) buf = part;
-    else if (buf.length + part.length + 2 < 900) buf = `${buf}\n\n${part}`;
-    else {
-      flush();
-      buf = part;
-    }
-  }
-  flush();
-  return chunks;
+  return units.map((text, idx) => ({
+    chunkId: `md-${idx}`,
+    blockId: `md-${idx}`,
+    page: 1,
+    kind: "text" as const,
+    text,
+    embedding: [],
+  }));
 }
 
 function pkcDocumentToStudyDoc(doc: PkcDocument): PkcStudyDocument {
@@ -129,7 +116,8 @@ export interface AnswerStudyQuestionResult {
 
 /**
  * Answer a question against a Study PKC document.
- * Extractive-first, then LFM2 ChatML RAG completion (annadata path).
+ * Extractive-first; generative only when retrieval is on-topic.
+ * Off-topic queries return {@link STUDY_CHAT_NO_CONTEXT_FALLBACK} (no hallucination).
  */
 export async function answerStudyQuestion(
   opts: AnswerStudyQuestionOptions,
@@ -139,22 +127,26 @@ export async function answerStudyQuestion(
     return { text: "", mode: "no-context", retrievalMode: "none" };
   }
 
-  const { snippets, ranked, mode: retrievalMode } = await retrieveStudyContext(opts.doc, q, {
+  const {
+    snippets,
+    ranked,
+    mode: retrievalMode,
+    relevance,
+  } = await retrieveStudyContext(opts.doc, q, {
     provider: opts.provider,
     useVectors: opts.useVectors,
     onStatus: opts.onStatus,
   });
 
-  const images = resolveStudyChatImages(opts.doc, ranked);
-
-  if (!snippets.length) {
+  if (!snippets.length || retrievalMode === "no-match" || relevance?.relevant === false) {
     return {
       text: STUDY_CHAT_NO_CONTEXT_FALLBACK,
       mode: "no-context",
-      retrievalMode,
+      retrievalMode: retrievalMode === "no-match" ? "no-match" : retrievalMode,
     };
   }
 
+  const images = resolveStudyChatImages(opts.doc, ranked);
   const withImages = <T extends AnswerStudyQuestionResult>(result: T): T =>
     images.length ? { ...result, images } : result;
 
@@ -163,10 +155,21 @@ export async function answerStudyQuestion(
     return withImages({ text: extractive, mode: "extractive", retrievalMode });
   }
 
+  // No verbatim excerpt — only generate when retrieval is confidently on-topic.
+  // Never dump unrelated passages (that caused electrochemistry "answers" for Pythagoras).
+  const gate = relevance ?? assessStudyRetrievalRelevance(q, ranked);
+  if (!gate.relevant) {
+    return withImages({
+      text: STUDY_CHAT_NO_CONTEXT_FALLBACK,
+      mode: "no-context",
+      retrievalMode: "no-match",
+    });
+  }
+
   if (!opts.provider) {
     return withImages({
-      text: buildStudyContextFallbackReply(snippets),
-      mode: "fallback",
+      text: STUDY_CHAT_NO_CONTEXT_FALLBACK,
+      mode: "no-context",
       retrievalMode,
     });
   }
@@ -183,7 +186,7 @@ export async function answerStudyQuestion(
     let reply = await opts.provider.complete([], {
       prompt,
       maxTokens: STUDY_CHAT_RAG_N_PREDICT,
-      temperature: 0,
+      temperature: STUDY_RAG_TEMPERATURE,
       stop: STUDY_CHAT_RAG_STOP,
     });
 
@@ -192,7 +195,7 @@ export async function answerStudyQuestion(
       reply = await opts.provider.complete([], {
         prompt,
         maxTokens: STUDY_CHAT_RAG_N_PREDICT,
-        temperature: 0.15,
+        temperature: STUDY_RAG_TEMPERATURE_RETRY,
         stop: STUDY_CHAT_RAG_STOP,
       });
       cleaned = clampStudyChatReply(reply, STUDY_CHAT_RAG_CLAMP);
@@ -200,8 +203,8 @@ export async function answerStudyQuestion(
 
     if (!cleaned) {
       return withImages({
-        text: buildStudyContextFallbackReply(snippets),
-        mode: "fallback",
+        text: STUDY_CHAT_NO_CONTEXT_FALLBACK,
+        mode: "no-context",
         retrievalMode,
       });
     }
@@ -209,8 +212,8 @@ export async function answerStudyQuestion(
     return withImages({ text: cleaned, mode: "generative", retrievalMode });
   } catch {
     return withImages({
-      text: buildStudyContextFallbackReply(snippets),
-      mode: "fallback",
+      text: STUDY_CHAT_NO_CONTEXT_FALLBACK,
+      mode: "no-context",
       retrievalMode,
     });
   }

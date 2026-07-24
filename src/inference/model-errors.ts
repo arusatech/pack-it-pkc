@@ -2,7 +2,7 @@
  * Human-readable reasons when GGUF download / load fails or is skipped.
  */
 
-import { getModelById, LFM2_CHAT_MODEL_ID } from "./model-catalog.js";
+import { getModelById, SMOL_CHAT_MODEL_ID } from "./model-catalog.js";
 
 /** Map raw errors (disk, memory, network, timeout) to a kind user message. */
 export function explainModelFailure(
@@ -15,15 +15,15 @@ export function explainModelFailure(
   const entry = getModelById(modelId);
   const sizeHint = entry?.sizeMB
     ? ` This model is about ${Math.round(entry.sizeMB)} MB.`
-    : modelId === LFM2_CHAT_MODEL_ID
-      ? " This chat model is about 700 MB."
+    : modelId === SMOL_CHAT_MODEL_ID
+      ? " This chat model is about 100 MB."
       : "";
 
   if (phase === "skip") {
     return (
-      `Skipped loading ${modelId} so Generate Study PKC can finish quickly.` +
+      `Skipped loading ${modelId} (opted out of chat load).` +
       sizeHint +
-      " Flashcards use rule-based answers. Free disk/RAM and load the model from the model picker if you want AI-assisted cards."
+      " Flashcards use rule-based answers. Load the model from the model picker, or leave loadChatModelIfNeeded enabled, for AI-assisted cards."
     );
   }
 
