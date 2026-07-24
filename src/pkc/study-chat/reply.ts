@@ -265,7 +265,6 @@ export function buildStudyRagChatPrompt(userQuery: string, contextSnippets: stri
   }
 
   const userBlock =
-    `${STUDY_CHAT_RAG_SYSTEM_RULES}\n\n` +
     "Use the following passages to answer the question. " +
     "Copy relevant sentence(s) verbatim when possible.\n\n" +
     `${contextBlock}\n\n` +
