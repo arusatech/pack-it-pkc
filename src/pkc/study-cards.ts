@@ -84,8 +84,17 @@ export function buildFlashCardUnits(sentences: string[]): string[] {
       (!endsWithTerminal(buf) && s.length > 0);
 
     if (shouldMerge) {
-      const joiner = /[,;:]$/.test(buf) ? " " : " ";
-      buf = `${buf}${joiner}${s}`.replaceAll(/\s+/g, " ").trim();
+      // Soften a finished sentence when attaching a dependent continuation
+      // ("…. Conversely," → "…, conversely,") so the merged unit reads as one statement.
+      let left = buf;
+      let joiner = " ";
+      if (/[.!?]$/.test(left) && looksDependentOnPrevious(s)) {
+        left = left.replace(/[.!?]+$/, "");
+        joiner = ", ";
+      } else if (/[,;:]$/.test(left)) {
+        joiner = " ";
+      }
+      buf = `${left}${joiner}${s}`.replaceAll(/\s+/g, " ").trim();
       if (endsWithTerminal(buf) && !TRAILING_INCOMPLETE.test(buf) && buf.length >= 40) {
         flush();
       }
