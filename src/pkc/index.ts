@@ -90,7 +90,7 @@ export {
   type ChessPlayerConfig,
 } from "./games/chess/build-chess-player-html.js";
 export { blocksToStudyDocumentParts } from "./study-from-blocks.js";
-export { chunkStudyBlocks, splitSentences, packSentencesIntoChunks } from "./study-chunk.js";
+export { chunkStudyBlocks, splitSentences, packSentencesIntoChunks, type ChunkStudyBlocksOptions } from "./study-chunk.js";
 export {
   STUDY_CHUNK_SIZE_TOKENS,
   STUDY_CHUNK_OVERLAP_TOKENS,
@@ -105,8 +105,13 @@ export {
   USEARCH_CONNECTIVITY,
   USEARCH_EXPANSION_ADD,
   USEARCH_EXPANSION_SEARCH,
+  DEFAULT_STUDY_PIPELINE_CONFIG,
+  resolveStudyPipelineConfig,
+  STUDY_REPLY_WORDS_MIN,
+  STUDY_REPLY_WORDS_MAX,
   estimateTokenCount,
   tokensToCharBudget,
+  type StudyPipelineConfig,
 } from "./study-rag-config.js";
 export {
   generateFlashCards,
@@ -153,6 +158,7 @@ export {
   type AnswerStudyQuestionResult,
   type StudyRetrieveResult,
   type StudyRetrieveMode,
+  type RetrieveStudyContextOptions,
   type StudyChatImage,
   type RankedChunk,
   type Bm25Hit,
@@ -167,4 +173,6 @@ export {
   type StudyVectorHit,
   type StudyVectorIndex,
   type StudyVectorRecord,
+  type CreateStudyVectorIndexOptions,
+  type USearchHnswOptions,
 } from "./vector/index.js";

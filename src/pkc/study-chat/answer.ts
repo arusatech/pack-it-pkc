@@ -14,8 +14,6 @@ import { retrieveStudyContext } from "./retrieve.js";
 import { resolveStudyChatImages, type StudyChatImage } from "./images.js";
 import {
   STUDY_CHAT_NO_CONTEXT_FALLBACK,
-  STUDY_CHAT_RAG_CLAMP,
-  STUDY_CHAT_RAG_N_PREDICT,
   STUDY_CHAT_RAG_STOP,
   buildStudyRagChatPrompt,
   clampStudyChatReply,
@@ -23,8 +21,8 @@ import {
 } from "./reply.js";
 import { packSentencesIntoChunks, splitSentences } from "../study-chunk.js";
 import {
-  STUDY_RAG_TEMPERATURE,
-  STUDY_RAG_TEMPERATURE_RETRY,
+  resolveStudyPipelineConfig,
+  type StudyPipelineConfig,
 } from "../study-rag-config.js";
 import { assessStudyRetrievalRelevance } from "./relevance.js";
 
@@ -103,6 +101,8 @@ export interface AnswerStudyQuestionOptions {
   chatModelId?: string | null;
   /** Load BGE and fuse vector hits (default true when embeddings exist). */
   useVectors?: boolean;
+  /** Host overrides for retrieval + Smol generation knobs. */
+  pipeline?: Partial<StudyPipelineConfig>;
   onStatus?: (msg: string) => void;
 }
 
@@ -127,6 +127,12 @@ export async function answerStudyQuestion(
     return { text: "", mode: "no-context", retrievalMode: "none" };
   }
 
+  const pipeline = resolveStudyPipelineConfig(opts.pipeline);
+  const replyClamp = {
+    maxWords: pipeline.maxReplyWords,
+    maxSentences: pipeline.maxReplySentences,
+  };
+
   const {
     snippets,
     ranked,
@@ -135,6 +141,7 @@ export async function answerStudyQuestion(
   } = await retrieveStudyContext(opts.doc, q, {
     provider: opts.provider,
     useVectors: opts.useVectors,
+    pipeline,
     onStatus: opts.onStatus,
   });
 
@@ -157,7 +164,10 @@ export async function answerStudyQuestion(
 
   // No verbatim excerpt — only generate when retrieval is confidently on-topic.
   // Never dump unrelated passages (that caused electrochemistry "answers" for Pythagoras).
-  const gate = relevance ?? assessStudyRetrievalRelevance(q, ranked);
+  const gate = relevance ?? assessStudyRetrievalRelevance(q, ranked, {
+    minVectorScore: pipeline.minVectorScore,
+    minLexicalOverlap: pipeline.minLexicalOverlap,
+  });
   if (!gate.relevant) {
     return withImages({
       text: STUDY_CHAT_NO_CONTEXT_FALLBACK,
@@ -180,25 +190,26 @@ export async function answerStudyQuestion(
     await ensureModelReady(opts.provider, chatModelId, {
       requireChatCapable: true,
       onStatus: opts.onStatus,
+      nCtx: pipeline.chatNCtx,
     });
 
     const prompt = buildStudyRagChatPrompt(q, snippets);
     let reply = await opts.provider.complete([], {
       prompt,
-      maxTokens: STUDY_CHAT_RAG_N_PREDICT,
-      temperature: STUDY_RAG_TEMPERATURE,
+      maxTokens: pipeline.nPredict,
+      temperature: pipeline.temperature,
       stop: STUDY_CHAT_RAG_STOP,
     });
 
-    let cleaned = clampStudyChatReply(reply, STUDY_CHAT_RAG_CLAMP);
+    let cleaned = clampStudyChatReply(reply, replyClamp);
     if (!cleaned) {
       reply = await opts.provider.complete([], {
         prompt,
-        maxTokens: STUDY_CHAT_RAG_N_PREDICT,
-        temperature: STUDY_RAG_TEMPERATURE_RETRY,
+        maxTokens: pipeline.nPredict,
+        temperature: pipeline.temperatureRetry,
         stop: STUDY_CHAT_RAG_STOP,
       });
-      cleaned = clampStudyChatReply(reply, STUDY_CHAT_RAG_CLAMP);
+      cleaned = clampStudyChatReply(reply, replyClamp);
     }
 
     if (!cleaned) {

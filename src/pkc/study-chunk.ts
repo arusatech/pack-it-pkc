@@ -1,15 +1,22 @@
 import type { RagChunk, StudyBlock, StudyBlockKind } from "./study-types.js";
 import {
+  DEFAULT_STUDY_PIPELINE_CONFIG,
   STUDY_CHUNK_OVERLAP_TOKENS,
   STUDY_CHUNK_SIZE_TOKENS,
   estimateTokenCount,
   tokensToCharBudget,
+  type StudyPipelineConfig,
 } from "./study-rag-config.js";
 
 export const MIN_SENTENCE_CHARS = 24;
 
 /** @deprecated Prefer STUDY_CHUNK_SIZE_TOKENS; kept as char ceiling for single sentences. */
 export const MAX_CHUNK_CHARS = tokensToCharBudget(STUDY_CHUNK_SIZE_TOKENS);
+
+export type ChunkStudyBlocksOptions = {
+  chunkSizeTokens?: number;
+  chunkOverlapTokens?: number;
+};
 
 export {
   STUDY_CHUNK_SIZE_TOKENS,
@@ -136,7 +143,14 @@ function textsForBlock(block: StudyBlock): string[] {
 }
 
 /** Build RAG chunks from study blocks (embeddings filled later). */
-export function chunkStudyBlocks(blocks: StudyBlock[]): RagChunk[] {
+export function chunkStudyBlocks(
+  blocks: StudyBlock[],
+  options?: ChunkStudyBlocksOptions | Partial<Pick<StudyPipelineConfig, "chunkSizeTokens" | "chunkOverlapTokens">>,
+): RagChunk[] {
+  const sizeTokens = options?.chunkSizeTokens ?? DEFAULT_STUDY_PIPELINE_CONFIG.chunkSizeTokens;
+  const overlapTokens =
+    options?.chunkOverlapTokens ?? DEFAULT_STUDY_PIPELINE_CONFIG.chunkOverlapTokens;
+  const maxChars = tokensToCharBudget(sizeTokens);
   const chunks: RagChunk[] = [];
 
   for (const block of blocks) {
@@ -146,14 +160,18 @@ export function chunkStudyBlocks(blocks: StudyBlock[]): RagChunk[] {
     for (const source of sources) {
       let units: string[];
       if (block.kind === "formula" || block.kind === "math") {
-        units = [source.slice(0, MAX_CHUNK_CHARS)];
+        units = [source.slice(0, maxChars)];
       } else {
         const sentences = splitSentences(source);
         units =
           sentences.length > 0
-            ? packSentencesIntoChunks(sentences)
+            ? packSentencesIntoChunks(sentences, sizeTokens, overlapTokens)
             : source.trim().length >= 12
-              ? packSentencesIntoChunks([source.trim().slice(0, MAX_CHUNK_CHARS)])
+              ? packSentencesIntoChunks(
+                  [source.trim().slice(0, maxChars)],
+                  sizeTokens,
+                  overlapTokens,
+                )
               : [];
       }
       for (const text of units) {

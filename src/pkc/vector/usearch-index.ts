@@ -3,12 +3,14 @@
  * Cosine metric; distances are converted to similarity scores (1 - distance).
  */
 
-import {
-  USEARCH_CONNECTIVITY,
-  USEARCH_EXPANSION_ADD,
-  USEARCH_EXPANSION_SEARCH,
-} from "../study-rag-config.js";
+import { DEFAULT_STUDY_PIPELINE_CONFIG } from "../study-rag-config.js";
 import type { StudyVectorHit, StudyVectorIndex, StudyVectorRecord } from "./types.js";
+
+export type USearchHnswOptions = {
+  connectivity?: number;
+  expansionAdd?: number;
+  expansionSearch?: number;
+};
 
 type USearchIndexCtor = new (config: {
   dimensions: number;
@@ -43,23 +45,35 @@ export class USearchVectorIndex implements StudyVectorIndex {
   private texts: string[] = [];
   private nextKey = 0;
 
-  private constructor(dimensions: number, Index: USearchIndexCtor) {
+  private constructor(
+    dimensions: number,
+    Index: USearchIndexCtor,
+    hnsw: Required<USearchHnswOptions>,
+  ) {
     this.dimensions = dimensions;
     this.index = new Index({
       dimensions,
       metric: "cos",
-      connectivity: USEARCH_CONNECTIVITY,
-      expansion_add: USEARCH_EXPANSION_ADD,
-      expansion_search: USEARCH_EXPANSION_SEARCH,
+      connectivity: hnsw.connectivity,
+      expansion_add: hnsw.expansionAdd,
+      expansion_search: hnsw.expansionSearch,
     });
   }
 
   /** Returns null when native bindings are unavailable (browser / failed install). */
-  static async tryCreate(dimensions: number): Promise<USearchVectorIndex | null> {
+  static async tryCreate(
+    dimensions: number,
+    hnsw?: USearchHnswOptions,
+  ): Promise<USearchVectorIndex | null> {
     if (!isNodeRuntime()) return null;
     if (!(dimensions > 0)) {
       throw new Error(`USearchVectorIndex: dimensions must be > 0 (got ${dimensions})`);
     }
+    const resolved: Required<USearchHnswOptions> = {
+      connectivity: hnsw?.connectivity ?? DEFAULT_STUDY_PIPELINE_CONFIG.usearchConnectivity,
+      expansionAdd: hnsw?.expansionAdd ?? DEFAULT_STUDY_PIPELINE_CONFIG.usearchExpansionAdd,
+      expansionSearch: hnsw?.expansionSearch ?? DEFAULT_STUDY_PIPELINE_CONFIG.usearchExpansionSearch,
+    };
     try {
       // Function-based import so Vite/Rollup do not resolve the Node native addon.
       const load = new Function("id", "return import(id)") as (id: string) => Promise<{
@@ -69,7 +83,7 @@ export class USearchVectorIndex implements StudyVectorIndex {
       const mod = await load("usearch");
       const Index = mod.Index ?? mod.default?.Index;
       if (!Index) return null;
-      return new USearchVectorIndex(dimensions, Index);
+      return new USearchVectorIndex(dimensions, Index, resolved);
     } catch {
       return null;
     }

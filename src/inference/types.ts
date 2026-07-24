@@ -19,7 +19,26 @@ export interface CompletionOptions {
   prompt?: string;
   /** Stop sequences for completion. */
   stop?: string[];
+  /** Sampling top-k (forwarded to llama-cpp when supported). */
+  topK?: number;
+  /** Sampling top-p / nucleus (forwarded to llama-cpp when supported). */
+  topP?: number;
 }
+
+export type LoadModelOptions = {
+  modelPath: string;
+  /** Catalog id when known (preferred over inferring from path). */
+  modelId?: string;
+  contextId?: number;
+  embedding?: boolean;
+  /** Override llama.cpp n_ctx (chat default 2048, embed default 512). */
+  nCtx?: number;
+  /** Override llama.cpp n_batch. */
+  nBatch?: number;
+  /** Override llama.cpp n_gpu_layers (default 99). */
+  nGpuLayers?: number;
+  onProgress?: (progress: number) => void;
+};
 
 /**
  * Platform-agnostic GGUF inference (replaces ONNX/OpenAI for on-device vision & text).
@@ -28,14 +47,7 @@ export interface CompletionOptions {
 export interface GgufInferenceProvider {
   readonly platform: "capacitor";
 
-  loadModel(options: {
-    modelPath: string;
-    /** Catalog id when known (preferred over inferring from path). */
-    modelId?: string;
-    contextId?: number;
-    embedding?: boolean;
-    onProgress?: (progress: number) => void;
-  }): Promise<void>;
+  loadModel(options: LoadModelOptions): Promise<void>;
   unloadModel?(contextId?: number): Promise<void>;
 
   complete(messages: ChatMessage[], options?: CompletionOptions): Promise<string>;

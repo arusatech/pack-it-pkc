@@ -29,6 +29,7 @@ export {
   clearStudyVectorIndexCache,
   type StudyRetrieveMode,
   type StudyRetrieveResult,
+  type RetrieveStudyContextOptions,
 } from "./retrieve.js";
 export {
   resolveStudyChatImages,

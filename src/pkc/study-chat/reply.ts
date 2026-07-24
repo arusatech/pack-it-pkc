@@ -3,10 +3,13 @@
  */
 
 import { polishStudyChatReply } from "./polish.js";
-import { STUDY_RAG_N_PREDICT } from "../study-rag-config.js";
+import {
+  DEFAULT_STUDY_PIPELINE_CONFIG,
+  STUDY_RAG_N_PREDICT,
+} from "../study-rag-config.js";
 
-export const STUDY_CHAT_RAG_MAX_WORDS = 120;
-export const STUDY_CHAT_RAG_MAX_SENTENCES = 5;
+export const STUDY_CHAT_RAG_MAX_WORDS = DEFAULT_STUDY_PIPELINE_CONFIG.maxReplyWords;
+export const STUDY_CHAT_RAG_MAX_SENTENCES = DEFAULT_STUDY_PIPELINE_CONFIG.maxReplySentences;
 export const STUDY_CHAT_RAG_CLAMP = {
   maxWords: STUDY_CHAT_RAG_MAX_WORDS,
   maxSentences: STUDY_CHAT_RAG_MAX_SENTENCES,
@@ -18,7 +21,7 @@ export const STUDY_CHAT_RAG_SYSTEM_RULES =
   "If the passages do not contain the answer, reply with exactly: " +
   "I couldn't find information about that in the loaded study material. " +
   "Copy the relevant sentence(s) verbatim from the passages — do not paraphrase, invent, or use outside knowledge. " +
-  "Include enough surrounding context from the passage to answer the question (up to 4 sentences). " +
+  "Include enough surrounding context from the passage to answer the question. " +
   "No lists, bullets, or headings. Do not prefix answers with passage numbers like [1]. " +
   "Keep normal spaces between English words. Write chemistry as one line, e.g. Zn(s) + Cu2+(aq) -> Zn2+(aq) + Cu(s).";
 

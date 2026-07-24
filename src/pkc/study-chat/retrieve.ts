@@ -10,10 +10,8 @@ import {
   DEFAULT_OFFLINE_MODEL_ID,
 } from "../../inference/model-catalog.js";
 import {
-  STUDY_RAG_BM25_TOP_K,
-  STUDY_RAG_FUSE_TOP_K,
-  STUDY_RAG_MIN_VECTOR_SCORE,
-  STUDY_RAG_VECTOR_TOP_K,
+  resolveStudyPipelineConfig,
+  type StudyPipelineConfig,
 } from "../study-rag-config.js";
 import type { PkcStudyDocument } from "../study-types.js";
 import { createStudyVectorIndex } from "../vector/create-index.js";
@@ -33,6 +31,19 @@ export interface StudyRetrieveResult {
   /** Why retrieval was accepted or rejected. */
   relevance?: ReturnType<typeof assessStudyRetrievalRelevance>;
 }
+
+export type RetrieveStudyContextOptions = {
+  provider?: GgufInferenceProvider | null;
+  /** When true, load BGE and run vector arm (slower: swaps out chat model). */
+  useVectors?: boolean;
+  /** Host pipeline overrides (merged with defaults). */
+  pipeline?: Partial<StudyPipelineConfig>;
+  /** Explicit Top_K overrides (win over pipeline when set). */
+  bm25Limit?: number;
+  vectorLimit?: number;
+  fuseCap?: number;
+  onStatus?: (msg: string) => void;
+};
 
 /** Build searchable corpus: RAG chunks + flash cards + MCQs. */
 export function collectStudySearchChunks(
@@ -101,6 +112,7 @@ const vectorIndexCache = new Map<string, CachedVectorIndex>();
 async function ensureVectorIndex(
   doc: PkcStudyDocument,
   withVectors: Array<{ chunkId: string; text: string; embedding: number[] }>,
+  pipeline: StudyPipelineConfig,
 ): Promise<StudyVectorIndex> {
   const key = docIndexKey(doc);
   const cached = vectorIndexCache.get(key);
@@ -108,8 +120,16 @@ async function ensureVectorIndex(
     return cached.index;
   }
 
-  const dimensions = withVectors[0]?.embedding.length ?? BGE_EMBEDDING_DIMENSION;
-  const index = await createStudyVectorIndex(dimensions);
+  const dimensions =
+    withVectors[0]?.embedding.length ??
+    doc.models?.embeddingDimensions ??
+    pipeline.embeddingDimensions ??
+    BGE_EMBEDDING_DIMENSION;
+  const index = await createStudyVectorIndex(dimensions, {
+    usearchConnectivity: pipeline.usearchConnectivity,
+    usearchExpansionAdd: pipeline.usearchExpansionAdd,
+    usearchExpansionSearch: pipeline.usearchExpansionSearch,
+  });
   index.add(
     withVectors.map((c) => ({
       chunkId: c.chunkId,
@@ -141,9 +161,13 @@ function gateRelevant(
   query: string,
   ranked: RankedChunk[],
   mode: StudyRetrieveMode,
+  pipeline: StudyPipelineConfig,
   vectorBackend?: StudyVectorIndex["backend"],
 ): StudyRetrieveResult {
-  const relevance = assessStudyRetrievalRelevance(query, ranked);
+  const relevance = assessStudyRetrievalRelevance(query, ranked, {
+    minVectorScore: pipeline.minVectorScore,
+    minLexicalOverlap: pipeline.minLexicalOverlap,
+  });
   if (!relevance.relevant || ranked.length === 0) {
     return {
       snippets: [],
@@ -165,20 +189,13 @@ function gateRelevant(
 export async function retrieveStudyContext(
   doc: PkcStudyDocument,
   query: string,
-  opts?: {
-    provider?: GgufInferenceProvider | null;
-    /** When true, load BGE and run vector arm (slower: swaps out chat model). */
-    useVectors?: boolean;
-    bm25Limit?: number;
-    vectorLimit?: number;
-    fuseCap?: number;
-    onStatus?: (msg: string) => void;
-  },
+  opts?: RetrieveStudyContextOptions,
 ): Promise<StudyRetrieveResult> {
   const q = query.trim();
-  const bm25Limit = opts?.bm25Limit ?? STUDY_RAG_BM25_TOP_K;
-  const vectorLimit = opts?.vectorLimit ?? STUDY_RAG_VECTOR_TOP_K;
-  const fuseCap = opts?.fuseCap ?? STUDY_RAG_FUSE_TOP_K;
+  const pipeline = resolveStudyPipelineConfig(opts?.pipeline);
+  const bm25Limit = opts?.bm25Limit ?? pipeline.bm25TopK;
+  const vectorLimit = opts?.vectorLimit ?? pipeline.vectorTopK;
+  const fuseCap = opts?.fuseCap ?? pipeline.fuseTopK;
 
   const indexKey = ensureBm25Index(doc);
   const bm25Hits = studyBm25.search(indexKey, q, bm25Limit).map(
@@ -199,20 +216,26 @@ export async function retrieveStudyContext(
 
   if (!wantVectors) {
     const ranked = bm25Hits.slice(0, fuseCap);
-    return gateRelevant(q, ranked, withVectors.length ? "bm25-only" : "bm25-no-vectors");
+    return gateRelevant(
+      q,
+      ranked,
+      withVectors.length ? "bm25-only" : "bm25-no-vectors",
+      pipeline,
+    );
   }
 
   try {
     opts?.onStatus?.("Embedding query for hybrid retrieval…");
     await ensureEmbeddingModelReady(provider!, DEFAULT_OFFLINE_MODEL_ID, {
       onStatus: opts?.onStatus,
+      nCtx: pipeline.embeddingNCtx,
     });
     const queryVec = await provider!.embedText!(q);
     opts?.onStatus?.("Searching USearch / vector index…");
-    const vectorIndex = await ensureVectorIndex(doc, withVectors);
+    const vectorIndex = await ensureVectorIndex(doc, withVectors, pipeline);
     const vectorHits = vectorIndex
       .search(queryVec, vectorLimit)
-      .filter((h) => h.score >= STUDY_RAG_MIN_VECTOR_SCORE)
+      .filter((h) => h.score >= pipeline.minVectorScore)
       .map(
         (h): RankedChunk => ({
           chunkId: h.chunkId,
@@ -226,9 +249,9 @@ export async function retrieveStudyContext(
       fuseRankedLists(vectorHits, bm25Hits, fuseCap),
       vectorHits,
     );
-    return gateRelevant(q, fused, "hybrid", vectorIndex.backend);
+    return gateRelevant(q, fused, "hybrid", pipeline, vectorIndex.backend);
   } catch {
     const ranked = bm25Hits.slice(0, fuseCap);
-    return gateRelevant(q, ranked, "bm25-only");
+    return gateRelevant(q, ranked, "bm25-only", pipeline);
   }
 }

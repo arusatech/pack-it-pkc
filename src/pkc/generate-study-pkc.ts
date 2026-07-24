@@ -11,6 +11,10 @@ import { generateFlashCards, generateMcqsFromFlashCards } from "./study-cards.js
 import { chunkStudyBlocks } from "./study-chunk.js";
 import { blocksToStudyDocumentParts } from "./study-from-blocks.js";
 import {
+  resolveStudyPipelineConfig,
+  type StudyPipelineConfig,
+} from "./study-rag-config.js";
+import {
   PKC_STUDY_VERSION,
   type PkcStudyDocument,
   type PkcStudyStats,
@@ -37,6 +41,8 @@ export type GenerateStudyPkcOptions = {
   chatModelLoadTimeoutMs?: number;
   /** Max ms to wait for embedding model load (default 180s). */
   embeddingModelLoadTimeoutMs?: number;
+  /** Host overrides for chunk / embed dim / USearch / Smol RAG knobs. */
+  pipeline?: Partial<StudyPipelineConfig>;
 };
 
 export type GenerateStudyPkcResult = {
@@ -84,6 +90,7 @@ export async function generateStudyPkc(
 ): Promise<GenerateStudyPkcResult> {
   const warnings: string[] = [];
   const onProgress = options.onProgress;
+  const pipeline = resolveStudyPipelineConfig(options.pipeline);
   const wantFlash = options.generateFlashMcq !== false;
   const chatModelId = options.chatModelId ?? getActiveModelId() ?? SMOL_CHAT_MODEL_ID;
   const embeddingModelId = options.embeddingModelId ?? DEFAULT_OFFLINE_MODEL_ID;
@@ -98,7 +105,10 @@ export async function generateStudyPkc(
   const { blocks, markdown } = blocksToStudyDocumentParts(pdfBlocks);
 
   onProgress?.("Chunking for RAG…");
-  const chunks = chunkStudyBlocks(blocks);
+  const chunks = chunkStudyBlocks(blocks, {
+    chunkSizeTokens: pipeline.chunkSizeTokens,
+    chunkOverlapTokens: pipeline.chunkOverlapTokens,
+  });
 
   const wantEmbed =
     options.generateEmbeddings !== false &&
@@ -107,12 +117,14 @@ export async function generateStudyPkc(
 
   let usedEmbeddingModel: string | null = null;
   let usedVectorBackend: StudyVectorBackend | null = null;
+  let usedEmbeddingDimensions: number | null = null;
   if (wantEmbed && embedProvider) {
     try {
       onProgress?.(`Loading embedding model ${embeddingModelId}…`);
       await withTimeout(
         ensureEmbeddingModelReady(embedProvider, embeddingModelId, {
           onStatus: onProgress,
+          nCtx: pipeline.embeddingNCtx,
         }),
         embedLoadTimeout,
         `Embedding model ${embeddingModelId}`,
@@ -135,7 +147,17 @@ export async function generateStudyPkc(
       if (embedded.length > 0) {
         onProgress?.("Building USearch vector index…");
         const dim = embedded[0]!.embedding.length;
-        const index = await createStudyVectorIndex(dim);
+        usedEmbeddingDimensions = dim;
+        if (dim !== pipeline.embeddingDimensions) {
+          warnings.push(
+            `Embedding dimension ${dim} differs from pipeline.embeddingDimensions=${pipeline.embeddingDimensions}; using actual vector length for the index.`,
+          );
+        }
+        const index = await createStudyVectorIndex(dim, {
+          usearchConnectivity: pipeline.usearchConnectivity,
+          usearchExpansionAdd: pipeline.usearchExpansionAdd,
+          usearchExpansionSearch: pipeline.usearchExpansionSearch,
+        });
         index.add(
           embedded.map((c) => ({
             chunkId: c.chunkId,
@@ -175,7 +197,10 @@ export async function generateStudyPkc(
           `Loading chat model ${chatModelId} (~100 MB). Needs free disk to download and free RAM to load…`,
         );
         await withTimeout(
-          ensureModelReady(llm, chatModelId, { onStatus: onProgress }),
+          ensureModelReady(llm, chatModelId, {
+            onStatus: onProgress,
+            nCtx: pipeline.chatNCtx,
+          }),
           chatLoadTimeout,
           `Chat model ${chatModelId}`,
         );
@@ -224,6 +249,7 @@ export async function generateStudyPkc(
       embedding: usedEmbeddingModel,
       chat: usedChatModel,
       vectorIndex: usedVectorBackend,
+      embeddingDimensions: usedEmbeddingDimensions,
     },
     warnings: warnings.length ? warnings : undefined,
   };

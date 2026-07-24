@@ -63,6 +63,12 @@ export type EnsureModelReadyOptions = {
   onStatus?: (message: string) => void;
   /** When true (default), refuse embeddings-only models for chat/assist. */
   requireChatCapable?: boolean;
+  /** Override llama.cpp n_ctx for this load. */
+  nCtx?: number;
+  /** Override llama.cpp n_batch for this load. */
+  nBatch?: number;
+  /** Override llama.cpp n_gpu_layers for this load. */
+  nGpuLayers?: number;
 };
 
 /**
@@ -107,10 +113,16 @@ export async function ensureModelReady(
     const loadOpts: {
       modelPath: string;
       modelId: string;
+      nCtx?: number;
+      nBatch?: number;
+      nGpuLayers?: number;
       onProgress?: (p: number) => void;
     } = {
       modelPath: path,
       modelId,
+      nCtx: options.nCtx,
+      nBatch: options.nBatch,
+      nGpuLayers: options.nGpuLayers,
     };
     if (options.onStatus) {
       loadOpts.onProgress = (p) => {
@@ -175,6 +187,9 @@ export async function ensureEmbeddingModelReady(
         modelPath: path,
         modelId,
         embedding: true,
+        nCtx: options.nCtx,
+        nBatch: options.nBatch,
+        nGpuLayers: options.nGpuLayers,
         ...(options.onStatus
           ? {
               onProgress: (p: number) => {

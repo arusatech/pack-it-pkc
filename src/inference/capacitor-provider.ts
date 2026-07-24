@@ -2,6 +2,7 @@ import type {
   ChatMessage,
   CompletionOptions,
   GgufInferenceProvider,
+  LoadModelOptions,
   VisionRequest,
 } from "./types.js";
 
@@ -11,6 +12,8 @@ type LlamaContextLike = {
     n_predict?: number;
     temperature?: number;
     stop?: string[];
+    top_k?: number;
+    top_p?: number;
   }) => Promise<{ text?: string; content?: string }>;
   embedding: (text: string) => Promise<{ embedding: number[] }>;
   release: () => Promise<void>;
@@ -62,12 +65,7 @@ export class CapacitorGgufProvider implements GgufInferenceProvider {
     return provider;
   }
 
-  async loadModel(options: {
-    modelPath: string;
-    contextId?: number;
-    embedding?: boolean;
-    onProgress?: (progress: number) => void;
-  }): Promise<void> {
+  async loadModel(options: LoadModelOptions): Promise<void> {
     if (!this.initLlama) {
       throw new Error("CapacitorGgufProvider not initialized. Call create() first.");
     }
@@ -82,13 +80,15 @@ export class CapacitorGgufProvider implements GgufInferenceProvider {
 
     this.modelPath = options.modelPath;
     this.embeddingMode = options.embedding === true;
+    const defaultNCtx = this.embeddingMode ? 512 : 2048;
+    const defaultNBatch = this.embeddingMode ? 512 : 256;
     this.context = await this.initLlama(
       {
         model: options.modelPath,
         embedding: this.embeddingMode,
-        n_ctx: this.embeddingMode ? 512 : 2048,
-        n_gpu_layers: 99,
-        n_batch: this.embeddingMode ? 512 : 256,
+        n_ctx: options.nCtx ?? defaultNCtx,
+        n_gpu_layers: options.nGpuLayers ?? 99,
+        n_batch: options.nBatch ?? defaultNBatch,
       },
       options.onProgress
         ? (p) => {
@@ -123,6 +123,8 @@ export class CapacitorGgufProvider implements GgufInferenceProvider {
       n_predict: options?.maxTokens ?? 512,
       temperature: options?.temperature ?? 0.7,
       stop: options?.stop,
+      ...(options?.topK != null ? { top_k: options.topK } : {}),
+      ...(options?.topP != null ? { top_p: options.topP } : {}),
     });
     return (result.text ?? result.content ?? "").trim();
   }

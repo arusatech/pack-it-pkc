@@ -4,6 +4,7 @@ export type {
   VisionRequest,
   ChatMessage,
   CompletionOptions,
+  LoadModelOptions,
 } from "./types.js";
 
 export {

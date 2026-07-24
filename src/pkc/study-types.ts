@@ -176,6 +176,8 @@ export interface PkcStudyDocument {
     chat?: string | null;
     /** Dense ANN backend used when embeddings were built (`usearch` or `exact-cosine`). */
     vectorIndex?: "usearch" | "exact-cosine" | null;
+    /** BGE (or host) embedding width used when vectors were built. */
+    embeddingDimensions?: number | null;
   };
   stats: PkcStudyStats;
   warnings?: string[];

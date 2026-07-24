@@ -139,6 +139,8 @@ export function mergeStudyDocuments(
     models: {
       embedding: [...embeddingModels][0] ?? first.document.models?.embedding ?? null,
       chat: [...chatModels][0] ?? first.document.models?.chat ?? null,
+      vectorIndex: first.document.models?.vectorIndex ?? null,
+      embeddingDimensions: first.document.models?.embeddingDimensions ?? null,
     },
     stats: {
       blockCount: blocks.length,
