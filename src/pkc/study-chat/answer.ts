@@ -157,7 +157,7 @@ export async function answerStudyQuestion(
   const withImages = <T extends AnswerStudyQuestionResult>(result: T): T =>
     images.length ? { ...result, images } : result;
 
-  const extractive = extractStudyReplyFromContext(q, snippets);
+  const extractive = extractStudyReplyFromContext(q, snippets, replyClamp);
   if (extractive) {
     return withImages({ text: extractive, mode: "extractive", retrievalMode });
   }

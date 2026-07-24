@@ -210,9 +210,17 @@ function queryTerms(userQuery: string): string[] {
 export function extractStudyReplyFromContext(
   userQuery: string,
   snippets: string[],
+  clampOpts?: { maxSentences?: number; maxWords?: number },
 ): string | null {
   const terms = queryTerms(userQuery);
   if (terms.length === 0 || snippets.length === 0) return null;
+  const clamp = {
+    maxWords: clampOpts?.maxWords ?? STUDY_CHAT_RAG_MAX_WORDS,
+    maxSentences: clampOpts?.maxSentences ?? STUDY_CHAT_RAG_MAX_SENTENCES,
+  };
+  // Pull a wide enough excerpt before clamping so host word/sentence caps can apply.
+  const sentenceWindow = Math.max(4, clamp.maxSentences);
+  const charWindow = Math.max(320, clamp.maxWords * 6);
 
   for (const snippet of snippets) {
     const text = snippet.trim().replace(/\s+/g, " ");
@@ -228,9 +236,12 @@ export function extractStudyReplyFromContext(
     );
 
     if (firstMatchIdx >= 0) {
-      const excerpt = sentences.slice(firstMatchIdx, firstMatchIdx + 4).join(" ").trim();
+      const excerpt = sentences
+        .slice(firstMatchIdx, firstMatchIdx + sentenceWindow)
+        .join(" ")
+        .trim();
       if (excerpt.length > 20) {
-        return clampStudyChatReply(excerpt, STUDY_CHAT_RAG_CLAMP);
+        return clampStudyChatReply(excerpt, clamp);
       }
     }
 
@@ -238,10 +249,10 @@ export function extractStudyReplyFromContext(
     const idx = normalized.indexOf(anchor);
     if (idx >= 0) {
       const start = Math.max(0, text.lastIndexOf(" ", Math.max(0, idx - 60)));
-      const end = Math.min(text.length, idx + 320);
+      const end = Math.min(text.length, idx + charWindow);
       const excerpt = text.slice(start, end).trim();
       if (excerpt.length > 20) {
-        return clampStudyChatReply(excerpt, STUDY_CHAT_RAG_CLAMP);
+        return clampStudyChatReply(excerpt, clamp);
       }
     }
   }
@@ -280,11 +291,20 @@ export function buildStudyRagChatPrompt(userQuery: string, contextSnippets: stri
   );
 }
 
-export function buildStudyContextFallbackReply(snippets: string[]): string {
+export function buildStudyContextFallbackReply(
+  snippets: string[],
+  clampOpts?: { maxSentences?: number; maxWords?: number },
+): string {
   const best = snippets.find((s) => s.trim().length > 24);
   if (!best) return STUDY_CHAT_NO_CONTEXT_FALLBACK;
+  const clamp = {
+    maxWords: clampOpts?.maxWords ?? STUDY_CHAT_RAG_MAX_WORDS,
+    maxSentences: clampOpts?.maxSentences ?? STUDY_CHAT_RAG_MAX_SENTENCES,
+  };
+  const sentenceWindow = Math.max(4, clamp.maxSentences);
   const trimmed = best.trim().replace(/\s+/g, " ");
   const sentences = trimmed.split(/(?<=[.!?])\s+/).filter(Boolean);
-  const quoted = sentences.slice(0, 4).join(" ").trim();
-  return clampStudyChatReply(quoted || trimmed.slice(0, 280), STUDY_CHAT_RAG_CLAMP);
+  const quoted = sentences.slice(0, sentenceWindow).join(" ").trim();
+  const charFallback = Math.max(280, clamp.maxWords * 6);
+  return clampStudyChatReply(quoted || trimmed.slice(0, charFallback), clamp);
 }

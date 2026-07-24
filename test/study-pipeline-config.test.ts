@@ -5,6 +5,7 @@ import {
 } from "../src/pkc/study-rag-config.js";
 import { chunkStudyBlocks } from "../src/pkc/study-chunk.js";
 import * as replyMod from "../src/pkc/study-chat/reply.js";
+import { extractStudyReplyFromContext } from "../src/pkc/study-chat/reply.js";
 import * as sessionMod from "../src/inference/model-session.js";
 import { answerStudyQuestion } from "../src/pkc/study-chat/answer.js";
 import { clearStudyVectorIndexCache, retrieveStudyContext } from "../src/pkc/study-chat/retrieve.js";
@@ -156,6 +157,27 @@ describe("retrieveStudyContext pipeline overrides", () => {
     if (result.mode !== "no-match") {
       expect(result.ranked.length).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe("extractStudyReplyFromContext pipeline clamp", () => {
+  it("honors host maxReplyWords for extractive replies", () => {
+    const sentences = Array.from(
+      { length: 12 },
+      (_, i) => `Zinc copper redox fact number ${i} about aqueous sulfate displacement.`,
+    ).join(" ");
+    const tight = extractStudyReplyFromContext("zinc copper sulfate", [sentences], {
+      maxWords: 10,
+      maxSentences: 40,
+    });
+    const wide = extractStudyReplyFromContext("zinc copper sulfate", [sentences], {
+      maxWords: 80,
+      maxSentences: 40,
+    });
+    expect(tight).toBeTruthy();
+    expect(wide).toBeTruthy();
+    expect(tight!.split(/\s+/).length).toBeLessThanOrEqual(12);
+    expect(wide!.split(/\s+/).length).toBeGreaterThan(tight!.split(/\s+/).length);
   });
 });
 
