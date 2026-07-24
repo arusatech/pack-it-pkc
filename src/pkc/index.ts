@@ -116,6 +116,7 @@ export {
 export {
   generateFlashCards,
   generateMcqsFromFlashCards,
+  buildFlashCardUnits,
   type StudyCardProgress,
 } from "./study-cards.js";
 export {
